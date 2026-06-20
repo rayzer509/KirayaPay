@@ -1,0 +1,410 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ─────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  owner
+  manager
+  tenant
+}
+
+enum Language {
+  en
+  hi
+}
+
+enum UnitStatus {
+  vacant
+  occupied
+}
+
+enum LeaseStatus {
+  active
+  expired
+  terminated
+}
+
+enum BillingCycleStatus {
+  open
+  readings_complete
+  bills_generated
+  closed
+}
+
+enum BillStatus {
+  draft
+  sent
+  paid
+  partial
+  overdue
+}
+
+enum BillLineItemType {
+  rent
+  fixed_connection
+  elec_consumption
+  water_consumption
+  other
+}
+
+enum PaymentMethod {
+  upi
+  cash
+  bank_transfer
+  other
+}
+
+enum MaintenanceStatus {
+  open
+  assigned
+  in_progress
+  resolved
+  closed
+}
+
+enum DocumentEntityType {
+  unit
+  tenant
+  lease
+  maintenance
+}
+
+// ─── Tables ─────────────────────────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  full_name      String    @db.VarChar(120)
+  phone          String?   @unique @db.VarChar(15)
+  email          String?   @unique @db.VarChar(200)
+  role           UserRole
+  preferred_lang Language  @default(en)
+  password_hash  String
+  created_at     DateTime  @default(now()) @db.Timestamptz()
+  deleted_at     DateTime? @db.Timestamptz()
+
+  owned_properties   Property[]           @relation("PropertyOwner")
+  leases             Lease[]              @relation("TenantLeases")
+  lease_amendments   LeaseAmendment[]     @relation("AmendedBy")
+  lease_templates    LeaseTemplate[]      @relation("TemplateCreatedBy")
+  property_rates     PropertyRate[]       @relation("RateCreatedBy")
+  meter_readings     MeterReading[]       @relation("ReadingEnteredBy")
+  payments           Payment[]            @relation("PaymentRecordedBy")
+  maintenance_raised MaintenanceRequest[] @relation("MaintenanceRaisedBy")
+  documents          Document[]           @relation("DocumentUploadedBy")
+  notices            Notice[]             @relation("NoticeCreatedBy")
+  messages_sent      Message[]            @relation("MessageSender")
+
+  @@index([phone])
+  @@map("users")
+}
+
+model Property {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner_id   String    @db.Uuid
+  name       String    @db.VarChar(150)
+  address    String
+  city       String    @db.VarChar(80)
+  state      String    @db.VarChar(80)
+  upi_id     String?   @db.VarChar(100)
+  upi_qr_url String?
+  created_at DateTime  @default(now()) @db.Timestamptz()
+  deleted_at DateTime? @db.Timestamptz()
+
+  owner           User            @relation("PropertyOwner", fields: [owner_id], references: [id])
+  units           Unit[]
+  rates           PropertyRate[]
+  billing_cycles  BillingCycle[]
+  lease_templates LeaseTemplate[]
+  notices         Notice[]
+
+  @@index([owner_id])
+  @@map("properties")
+}
+
+model PropertyRate {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id        String   @db.Uuid
+  base_rate_per_kw   Decimal  @db.Decimal(8, 2)
+  elec_rate_per_unit Decimal  @db.Decimal(8, 2)
+  water_rate_per_kl  Decimal  @db.Decimal(8, 2)
+  effective_from     DateTime @db.Date
+  created_by         String   @db.Uuid
+  created_at         DateTime @default(now()) @db.Timestamptz()
+
+  property Property @relation(fields: [property_id], references: [id])
+  creator  User     @relation("RateCreatedBy", fields: [created_by], references: [id])
+
+  @@index([property_id])
+  @@index([property_id, effective_from])
+  @@map("property_rates")
+}
+
+model Unit {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String     @db.Uuid
+  unit_number String     @db.VarChar(20)
+  floor       Int?       @db.SmallInt
+  area_sqft   Decimal?   @db.Decimal(8, 2)
+  status      UnitStatus
+  created_at  DateTime   @default(now()) @db.Timestamptz()
+  deleted_at  DateTime?  @db.Timestamptz()
+
+  property       Property             @relation(fields: [property_id], references: [id])
+  leases         Lease[]
+  meter_readings MeterReading[]
+  maintenance    MaintenanceRequest[]
+  bills          Bill[]
+
+  @@index([property_id])
+  @@map("units")
+}
+
+model Lease {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  unit_id            String      @db.Uuid
+  tenant_id          String      @db.Uuid
+  monthly_rent       Decimal     @db.Decimal(10, 2)
+  security_deposit   Decimal     @db.Decimal(10, 2)
+  sanctioned_load_kw Decimal     @db.Decimal(4, 2)
+  rent_due_day       Int         @db.SmallInt
+  start_date         DateTime    @db.Date
+  end_date           DateTime    @db.Date
+  status             LeaseStatus
+  template_id        String?     @db.Uuid
+  acknowledged_at    DateTime?   @db.Timestamptz()
+  created_at         DateTime    @default(now()) @db.Timestamptz()
+  deleted_at         DateTime?   @db.Timestamptz()
+
+  unit       Unit           @relation(fields: [unit_id], references: [id])
+  tenant     User           @relation("TenantLeases", fields: [tenant_id], references: [id])
+  template   LeaseTemplate? @relation(fields: [template_id], references: [id])
+  amendments LeaseAmendment[]
+  bills      Bill[]
+  messages   Message[]
+
+  @@index([unit_id])
+  @@index([tenant_id])
+  @@index([status])
+  @@map("leases")
+}
+
+model LeaseAmendment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lease_id       String   @db.Uuid
+  field_changed  String   @db.VarChar(60)
+  old_value      String
+  new_value      String
+  effective_from DateTime @db.Date
+  amended_by     String   @db.Uuid
+  note           String?
+  created_at     DateTime @default(now()) @db.Timestamptz()
+
+  lease   Lease @relation(fields: [lease_id], references: [id])
+  amender User  @relation("AmendedBy", fields: [amended_by], references: [id])
+
+  @@index([lease_id])
+  @@map("lease_amendments")
+}
+
+model LeaseTemplate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String   @db.Uuid
+  version     Int      @db.SmallInt
+  content_en  String
+  content_hi  String?
+  is_active   Boolean
+  created_by  String   @db.Uuid
+  created_at  DateTime @default(now()) @db.Timestamptz()
+
+  property Property @relation(fields: [property_id], references: [id])
+  creator  User     @relation("TemplateCreatedBy", fields: [created_by], references: [id])
+  leases   Lease[]
+
+  @@index([property_id])
+  @@map("lease_templates")
+}
+
+model BillingCycle {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id     String             @db.Uuid
+  cycle_month     DateTime           @db.Date
+  status          BillingCycleStatus
+  readings_due_by DateTime           @db.Date
+  created_at      DateTime           @default(now()) @db.Timestamptz()
+
+  property       Property       @relation(fields: [property_id], references: [id])
+  meter_readings MeterReading[]
+  bills          Bill[]
+
+  @@unique([property_id, cycle_month])
+  @@index([property_id])
+  @@index([cycle_month])
+  @@map("billing_cycles")
+}
+
+model MeterReading {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycle_id           String   @db.Uuid
+  unit_id            String   @db.Uuid
+  prev_elec_reading  Decimal  @db.Decimal(10, 2)
+  curr_elec_reading  Decimal  @db.Decimal(10, 2)
+  prev_water_reading Decimal  @db.Decimal(10, 2)
+  curr_water_reading Decimal  @db.Decimal(10, 2)
+  elec_photo_url     String?
+  water_photo_url    String?
+  is_estimated       Boolean  @default(false)
+  entered_by         String   @db.Uuid
+  entered_at         DateTime @db.Timestamptz()
+
+  cycle   BillingCycle @relation(fields: [cycle_id], references: [id])
+  unit    Unit         @relation(fields: [unit_id], references: [id])
+  enterer User         @relation("ReadingEnteredBy", fields: [entered_by], references: [id])
+  bills   Bill[]
+
+  @@index([cycle_id])
+  @@index([unit_id])
+  @@map("meter_readings")
+}
+
+model Bill {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycle_id     String     @db.Uuid
+  unit_id      String     @db.Uuid
+  lease_id     String     @db.Uuid
+  reading_id   String?    @db.Uuid
+  total_amount Decimal    @db.Decimal(10, 2)
+  due_date     DateTime   @db.Date
+  status       BillStatus
+  generated_at DateTime?  @db.Timestamptz()
+  created_at   DateTime   @default(now()) @db.Timestamptz()
+
+  cycle      BillingCycle   @relation(fields: [cycle_id], references: [id])
+  unit       Unit           @relation(fields: [unit_id], references: [id])
+  lease      Lease          @relation(fields: [lease_id], references: [id])
+  reading    MeterReading?  @relation(fields: [reading_id], references: [id])
+  line_items BillLineItem[]
+  payments   Payment[]
+
+  @@index([cycle_id])
+  @@index([unit_id])
+  @@index([status])
+  @@map("bills")
+}
+
+model BillLineItem {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bill_id       String           @db.Uuid
+  type          BillLineItemType
+  description   String           @db.VarChar(200)
+  quantity      Decimal?         @db.Decimal(10, 3)
+  rate_snapshot Decimal?         @db.Decimal(10, 4)
+  amount        Decimal          @db.Decimal(10, 2)
+  sort_order    Int              @db.SmallInt
+
+  bill Bill @relation(fields: [bill_id], references: [id])
+
+  @@index([bill_id])
+  @@map("bill_line_items")
+}
+
+model Payment {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bill_id        String        @db.Uuid
+  amount_paid    Decimal       @db.Decimal(10, 2)
+  payment_method PaymentMethod
+  upi_ref        String?       @db.VarChar(100)
+  paid_at        DateTime      @db.Timestamptz()
+  recorded_by    String        @db.Uuid
+  note           String?
+  created_at     DateTime      @default(now()) @db.Timestamptz()
+
+  bill     Bill @relation(fields: [bill_id], references: [id])
+  recorder User @relation("PaymentRecordedBy", fields: [recorded_by], references: [id])
+
+  @@index([bill_id])
+  @@index([paid_at])
+  @@map("payments")
+}
+
+model MaintenanceRequest {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  unit_id     String            @db.Uuid
+  raised_by   String            @db.Uuid
+  title       String            @db.VarChar(200)
+  description String?
+  status      MaintenanceStatus
+  assigned_to String?           @db.VarChar(120)
+  repair_cost Decimal?          @db.Decimal(10, 2)
+  raised_at   DateTime          @db.Timestamptz()
+  resolved_at DateTime?         @db.Timestamptz()
+  deleted_at  DateTime?         @db.Timestamptz()
+
+  unit   Unit @relation(fields: [unit_id], references: [id])
+  raiser User @relation("MaintenanceRaisedBy", fields: [raised_by], references: [id])
+
+  @@index([unit_id])
+  @@index([status])
+  @@index([raised_at])
+  @@map("maintenance_requests")
+}
+
+model Document {
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entity_type DocumentEntityType
+  entity_id   String             @db.Uuid
+  name        String             @db.VarChar(200)
+  file_url    String
+  file_type   String             @db.VarChar(50)
+  uploaded_by String             @db.Uuid
+  created_at  DateTime           @default(now()) @db.Timestamptz()
+  deleted_at  DateTime?          @db.Timestamptz()
+
+  uploader User @relation("DocumentUploadedBy", fields: [uploaded_by], references: [id])
+
+  @@index([entity_id])
+  @@map("documents")
+}
+
+model Notice {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String    @db.Uuid
+  unit_id     String?   @db.Uuid
+  created_by  String    @db.Uuid
+  title_en    String    @db.VarChar(200)
+  title_hi    String?   @db.VarChar(200)
+  body_en     String
+  body_hi     String?
+  sent_at     DateTime  @db.Timestamptz()
+  deleted_at  DateTime? @db.Timestamptz()
+
+  property Property @relation(fields: [property_id], references: [id])
+  creator  User     @relation("NoticeCreatedBy", fields: [created_by], references: [id])
+
+  @@index([property_id])
+  @@index([sent_at])
+  @@map("notices")
+}
+
+model Message {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lease_id  String    @db.Uuid
+  sender_id String    @db.Uuid
+  body      String
+  sent_at   DateTime  @db.Timestamptz()
+  read_at   DateTime? @db.Timestamptz()
+
+  lease  Lease @relation(fields: [lease_id], references: [id])
+  sender User  @relation("MessageSender", fields: [sender_id], references: [id])
+
+  @@index([lease_id])
+  @@index([sent_at])
+  @@map("messages")
+}

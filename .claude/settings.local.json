@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Command node, npm -ErrorAction SilentlyContinue)",
+      "PowerShell(Test-Path \"$env:APPDATA\\\\nvm\"; Test-Path \"$env:LOCALAPPDATA\\\\nvm\"; Test-Path \"C:\\\\nvm\")",
+      "PowerShell(& \"C:\\\\Program Files\\\\nodejs\\\\npm.cmd\" --version 2>&1)",
+      "PowerShell(& \"C:\\\\Program Files\\\\nodejs\\\\node.exe\" --version 2>&1)",
+      "PowerShell($env:PATH)",
+      "PowerShell(winget --version)",
+      "PowerShell(winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); node --version; npm --version)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); Set-Location \"d:\\\\claudeVS\\\\rental-management\"; npm install --legacy-peer-deps 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); Set-Location \"d:\\\\claudeVS\\\\rental-management\"; npm install next@14.2.30 eslint-config-next@14.2.30 --legacy-peer-deps 2>&1 | Select-Object -Last 10)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); Set-Location \"d:\\\\claudeVS\\\\rental-management\"; npx prisma generate 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); Set-Location \"d:\\\\claudeVS\\\\rental-management\"; npx prisma db push 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); npx tsc --noEmit 2>&1)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); Set-Location d:\\\\claudeVS\\\\rental-management; npm run dev)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); Set-Location d:\\\\claudeVS\\\\rental-management; npm install jspdf 2>&1 | Select-Object -Last 5)",
+      "PowerShell(New-Item -ItemType Directory -Force -Path \"d:\\\\claudeVS\\\\rental-management\\\\supabase\")",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); Set-Location d:\\\\claudeVS\\\\rental-management; npx tsc --noEmit 2>&1)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing -MaximumRedirection 0 -ErrorAction SilentlyContinue)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing -MaximumRedirection 5 | Select-Object StatusCode, @{N='FinalUrl';E={$_.BaseResponse.ResponseUri}})",
+      "PowerShell(cd d:\\\\claudeVS\\\\rental-management; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"; $env:DIRECT_URL=\"postgresql://postgres:Ananya0805%23@db.ayfimyhyokowxnnhgumq.supabase.co:5432/postgres\"; npx prisma db push)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:3000/dashboard/templates\" -UseBasicParsing -MaximumRedirection 5)",
+      "PowerShell(node --version)",
+      "PowerShell(npx expo --version 2>$null)",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\claudeVS\\\\rental-management-mobile\\\\lib\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\claudeVS\\\\rental-management-mobile\\\\app\\\\\\(auth\\)\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\claudeVS\\\\rental-management-mobile\\\\app\\\\\\(tabs\\)\")",
+      "PowerShell(Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c cd d:\\\\claudeVS\\\\rental-management-mobile && npx expo start > C:\\\\Users\\\\HP\\\\AppData\\\\Local\\\\Temp\\\\expo-dev.log 2>&1\" -WindowStyle Hidden)",
+      "PowerShell(cd d:\\\\claudeVS\\\\rental-management; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"; $env:DIRECT_URL=\"postgresql://postgres:Ananya0805%23@db.ayfimyhyokowxnnhgumq.supabase.co:5432/postgres\"; npx prisma db push 2>&1 | Select-Object -Last 5)",
+      "PowerShell(cd d:\\\\claudeVS\\\\rental-management; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"; $env:DIRECT_URL=\"postgresql://postgres:Ananya0805%23@db.ayfimyhyokowxnnhgumq.supabase.co:5432/postgres\"; npx prisma db push --skip-generate 2>&1 | Select-Object -Last 5)",
+      "PowerShell(cd d:\\\\claudeVS\\\\rental-management; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"; $env:DIRECT_URL=\"postgresql://postgres:Ananya0805%23@db.ayfimyhyokowxnnhgumq.supabase.co:5432/postgres\"; npx prisma db push --skip-generate 2>&1 | Select-String \"sync|error|Error\" | Select-Object -First 5)",
+      "PowerShell(Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force)",
+      "PowerShell(cd d:\\\\claudeVS\\\\rental-management; $env:NEXT_PUBLIC_SUPABASE_URL=\"https://ayfimyhyokowxnnhgumq.supabase.co\"; $env:SUPABASE_SERVICE_ROLE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5ZmlteWh5b2tvd3hubmhndW1xIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTAyNzc3NiwiZXhwIjoyMDk2NjAzNzc2fQ.32AUfp1wA0uqZ4gVb3Y5fgIk0m0tfwBthYSP-UITkik\"; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"; npx tsx scripts/reset-data.ts)",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\claudeVS\\\\rental-management\\\\src\\\\app\\\\tenant\\\\set-password\")"
+    ]
+  }
+}
