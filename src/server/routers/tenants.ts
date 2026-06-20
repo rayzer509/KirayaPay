@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, adminProcedure, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { createSupabaseAdminClient } from '@/lib/supabase-admin';
+import { generatePassword, sendTenantCredentials, sendTenantPasswordReset } from '@/lib/email';
 
 export const tenantsRouter = router({
   list: adminProcedure
@@ -73,17 +74,35 @@ export const tenantsRouter = router({
         return existing;
       }
 
-      // Send invite email — creates auth user and emails a login link to the tenant
       const supabaseAdmin = createSupabaseAdminClient();
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-        input.email,
-        { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/tenant/set-password` }
-      );
+      const password = generatePassword();
+
+      // --- SUPABASE INVITE FLOW (commented out — switch back by uncommenting below and commenting out the Gmail block) ---
+      // const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      //   input.email,
+      //   { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/tenant/set-password` }
+      // );
+      // if (authError) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `Auth error: ${authError.message}` });
+      // const userId = authData.user.id;
+
+      // --- GMAIL CREDENTIALS FLOW ---
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email: input.email,
+        password,
+        email_confirm: true,
+      });
       if (authError) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `Auth error: ${authError.message}` });
+      const userId = authData.user.id;
+
+      await sendTenantCredentials({
+        to: input.email,
+        tenantName: input.full_name,
+        password,
+      });
 
       return ctx.prisma.user.create({
         data: {
-          id: authData.user.id,
+          id: userId,
           full_name: input.full_name,
           email: input.email,
           phone: input.phone,
@@ -117,13 +136,26 @@ export const tenantsRouter = router({
       if (!tenant?.email) throw new TRPCError({ code: 'NOT_FOUND', message: 'Tenant not found' });
 
       const supabaseAdmin = createSupabaseAdminClient();
-      // generateLink works for both unconfirmed and confirmed users, unlike inviteUserByEmail
-      const { error } = await supabaseAdmin.auth.admin.generateLink({
-        type: 'magiclink',
-        email: tenant.email,
-        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/tenant/set-password` },
-      });
+      const password = generatePassword();
+
+      // --- SUPABASE MAGIC LINK FLOW (commented out) ---
+      // const { error } = await supabaseAdmin.auth.admin.generateLink({
+      //   type: 'magiclink',
+      //   email: tenant.email,
+      //   options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/tenant/set-password` },
+      // });
+      // if (error) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+
+      // --- GMAIL CREDENTIALS FLOW ---
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(tenant.id, { password });
       if (error) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
+
+      await sendTenantPasswordReset({
+        to: tenant.email,
+        tenantName: tenant.full_name,
+        password,
+      });
+
       return { ok: true };
     }),
 
