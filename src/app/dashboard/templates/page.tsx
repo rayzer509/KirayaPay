@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
-import { BookTemplate, Plus, Eye, CheckCircle } from 'lucide-react';
+import { BookTemplate, Plus, Eye, CheckCircle, Wand2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -117,6 +117,8 @@ export default function TemplatesPage() {
   const [previewTemplateId, setPreviewTemplateId] = useState('');
   const [previewLeaseId, setPreviewLeaseId] = useState('');
   const [showPreview, setShowPreview] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generateType, setGenerateType] = useState<'residential' | 'commercial'>('residential');
 
   const { data: properties } = trpc.properties.list.useQuery();
   const { data: templates, refetch } = trpc.templates.list.useQuery(
@@ -132,6 +134,10 @@ export default function TemplatesPage() {
     { enabled: !!previewTemplateId && !!previewLeaseId }
   );
   const createMut = trpc.templates.create.useMutation();
+  const generateDefault = trpc.templates.generateDefault.useMutation({
+    onSuccess: () => { toast.success('Default template generated'); setShowGenerateModal(false); refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
 
   const propertyOptions = (properties ?? []).map((p) => ({ value: p.id, label: p.name }));
   const leaseOptions = (leases ?? []).map((l) => ({
@@ -185,10 +191,16 @@ export default function TemplatesPage() {
         title="Lease Templates"
         action={
           selectedProperty && !showEditor ? (
-            <Button onClick={openNewEditor}>
-              <Plus className="w-4 h-4" />
-              New Template
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setShowGenerateModal(true)}>
+                <Wand2 className="w-4 h-4" />
+                Generate Default
+              </Button>
+              <Button onClick={openNewEditor}>
+                <Plus className="w-4 h-4" />
+                New Template
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -240,10 +252,11 @@ export default function TemplatesPage() {
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-navy">Version {t.version}</p>
                         {t.is_active && <span className="text-xs px-2 py-0.5 bg-sage/15 text-sage rounded-full font-medium">Active</span>}
+                        <span className="text-xs px-2 py-0.5 bg-slate-light text-slate rounded-full capitalize">{t.template_type}</span>
                       </div>
                       <p className="text-xs text-slate">
                         Created {format(new Date(t.created_at), 'dd MMM yyyy')}
-                        {t.content_hi ? ' · Bilingual' : ' · English only'}
+                        {t.content_hi ? ' · Bilingual (EN + HI)' : ' · English only'}
                       </p>
                     </div>
                   </div>
@@ -315,6 +328,45 @@ export default function TemplatesPage() {
           </Card>
         )}
       </main>
+
+      {/* Generate default modal */}
+      <Modal open={showGenerateModal} onClose={() => setShowGenerateModal(false)} title="Generate Default Template">
+        <p className="text-sm text-slate mb-4">
+          Generate a standard lease template pre-filled in both English and Hindi. You can edit it afterwards.
+        </p>
+        <div className="space-y-3 mb-6">
+          {(['residential', 'commercial'] as const).map((type) => (
+            <label key={type} className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-saffron transition has-[:checked]:border-saffron has-[:checked]:bg-saffron-light">
+              <input
+                type="radio"
+                name="templateType"
+                value={type}
+                checked={generateType === type}
+                onChange={() => setGenerateType(type)}
+                className="mt-0.5"
+              />
+              <div>
+                <p className="font-medium text-navy capitalize">{type}</p>
+                <p className="text-xs text-slate mt-0.5">
+                  {type === 'residential'
+                    ? 'For homes, flats, and rooms. 1-month notice period, 30-day deposit refund.'
+                    : 'For shops, offices, and warehouses. GST applicable, 3-month notice, 45-day deposit refund.'}
+                </p>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setShowGenerateModal(false)}>Cancel</Button>
+          <Button
+            loading={generateDefault.isLoading}
+            onClick={() => generateDefault.mutate({ property_id: selectedProperty, template_type: generateType })}
+          >
+            <Wand2 className="w-4 h-4" />
+            Generate
+          </Button>
+        </div>
+      </Modal>
 
       {/* Preview modal */}
       <Modal open={showPreview} onClose={() => setShowPreview(false)} title="Preview Template" size="lg">

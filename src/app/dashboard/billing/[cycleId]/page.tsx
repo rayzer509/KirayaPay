@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc';
 import { Topbar } from '@/components/layout/Topbar';
@@ -20,8 +20,14 @@ export default function BillingCyclePage() {
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<string>('');
 
+  const [voidBillId, setVoidBillId] = useState<string | null>(null);
   const { data: cycle, isLoading, refetch } = trpc.billing.getCycle.useQuery({ id: cycleId });
   const generateBills = trpc.billing.generateBills.useMutation();
+  const utils = trpc.useContext();
+  const voidBill = trpc.billing.voidBill.useMutation({
+    onSuccess: () => { refetch(); setVoidBillId(null); toast.success('Bill voided — cycle reopened for re-entry'); },
+    onError: (err) => toast.error(err.message),
+  });
 
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-slate">Loading…</div>;
   if (!cycle) return <div className="flex-1 flex items-center justify-center text-slate">Cycle not found</div>;
@@ -122,6 +128,7 @@ export default function BillingCyclePage() {
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Tenant</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Total</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Status</th>
+                    <th className="px-5 py-3" />
                   </tr>
                 </thead>
                 <tbody>
@@ -131,6 +138,17 @@ export default function BillingCyclePage() {
                       <td className="px-5 py-3.5 text-slate">{bill.lease.tenant.full_name}</td>
                       <td className="px-5 py-3.5 money text-navy">{formatCurrency(Number(bill.total_amount))}</td>
                       <td className="px-5 py-3.5"><StatusPill status={bill.status} /></td>
+                      <td className="px-5 py-3.5">
+                        {bill.status !== 'paid' && bill.status !== 'void' && (
+                          <button
+                            onClick={() => setVoidBillId(bill.id)}
+                            className="flex items-center gap-1 text-xs text-coral hover:text-coral/80 transition"
+                            title="Void this bill"
+                          >
+                            <Trash2 size={13} /> Void
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -154,6 +172,23 @@ export default function BillingCyclePage() {
           />
         </Modal>
       )}
+
+      <Modal open={!!voidBillId} onClose={() => setVoidBillId(null)} title="Void Bill">
+        <p className="text-sm text-slate mb-1">Are you sure you want to void this bill?</p>
+        <p className="text-sm text-slate mb-6">
+          The bill will be marked void and the billing cycle will reopen so you can enter correct meter readings and regenerate the bill.
+        </p>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setVoidBillId(null)}>Cancel</Button>
+          <Button
+            variant="danger"
+            loading={voidBill.isLoading}
+            onClick={() => voidBillId && voidBill.mutate({ id: voidBillId })}
+          >
+            <Trash2 size={14} /> Void Bill
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

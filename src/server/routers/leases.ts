@@ -64,7 +64,18 @@ export const leasesRouter = router({
         rent_due_day: z.number().int().min(1).max(28),
         start_date: z.string(),
         end_date: z.string(),
+        billing_start_date: z.string().optional(),
         template_id: z.string().uuid().optional(),
+        // Escalation
+        escalation_rate: z.number().min(0).max(100).optional(),
+        next_escalation_date: z.string().optional(),
+        // Security deposit
+        deposit_collected: z.boolean().default(false),
+        deposit_collected_at: z.string().optional(),
+        deposit_collected_via: z.string().optional(),
+        // Opening balance (pre-existing tenants)
+        opening_balance: z.number().nonnegative().optional(),
+        opening_balance_note: z.string().max(200).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -73,17 +84,25 @@ export const leasesRouter = router({
       });
       if (existing) throw new TRPCError({ code: 'CONFLICT', message: 'Unit already has an active lease' });
 
+      const { unit_id, tenant_id, start_date, end_date, billing_start_date,
+              next_escalation_date, deposit_collected_at, ...rest } = input;
+
       const lease = await ctx.prisma.lease.create({
         data: {
-          ...input,
-          start_date: new Date(input.start_date),
-          end_date: new Date(input.end_date),
+          ...rest,
+          unit_id,
+          tenant_id,
+          start_date: new Date(start_date),
+          end_date: new Date(end_date),
+          billing_start_date: billing_start_date ? new Date(billing_start_date) : undefined,
+          next_escalation_date: next_escalation_date ? new Date(next_escalation_date) : undefined,
+          deposit_collected_at: deposit_collected_at ? new Date(deposit_collected_at) : undefined,
           status: 'active',
         },
       });
 
       await ctx.prisma.unit.update({
-        where: { id: input.unit_id },
+        where: { id: unit_id },
         data: { status: 'occupied' },
       });
 
@@ -134,6 +153,68 @@ export const leasesRouter = router({
       }
 
       return amendment;
+    }),
+
+  updateDeposit: adminProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        deposit_collected: z.boolean(),
+        deposit_collected_at: z.string().optional(),
+        deposit_collected_via: z.string().optional(),
+        deposit_refund_status: z.enum(['held', 'partial', 'refunded']).optional(),
+        deposit_refunded_amount: z.number().nonnegative().optional(),
+        deposit_refunded_at: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, deposit_collected_at, deposit_refunded_at, ...rest } = input;
+      return ctx.prisma.lease.update({
+        where: { id },
+        data: {
+          ...rest,
+          deposit_collected_at: deposit_collected_at ? new Date(deposit_collected_at) : undefined,
+          deposit_refunded_at: deposit_refunded_at ? new Date(deposit_refunded_at) : undefined,
+        },
+      });
+    }),
+
+  markOpeningBalancePaid: adminProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        paid_via: z.enum(['cash', 'upi', 'bank_transfer', 'other']),
+        paid_at: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.lease.update({
+        where: { id: input.id },
+        data: {
+          opening_balance_paid_at: new Date(input.paid_at),
+          opening_balance_paid_via: input.paid_via,
+        },
+      });
+    }),
+
+  updatePoliceVerification: adminProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        police_verification_status: z.enum(['pending', 'submitted', 'verified']),
+        police_verification_date: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.lease.update({
+        where: { id: input.id },
+        data: {
+          police_verification_status: input.police_verification_status,
+          police_verification_date: input.police_verification_date
+            ? new Date(input.police_verification_date)
+            : undefined,
+        },
+      });
     }),
 
   terminate: adminProcedure

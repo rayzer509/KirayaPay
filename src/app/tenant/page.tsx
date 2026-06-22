@@ -10,13 +10,15 @@ import { downloadReceipt } from '@/lib/receipt';
 import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import Link from 'next/link';
-import { Download } from 'lucide-react';
+import { Download, History } from 'lucide-react';
+import { format } from 'date-fns';
 
 export default function TenantBillsPage() {
   const [payingBillId, setPayingBillId] = useState<string | null>(null);
 
   const { data: bills, isLoading, refetch } = trpc.billing.billsForTenant.useQuery({ status: 'all' });
   const { data: me } = trpc.auth.me.useQuery();
+  const { data: historyData } = trpc.billing.paymentHistory.useQuery();
 
   const pendingBills = bills?.filter((b) => b.status === 'sent' || b.status === 'partial' || b.status === 'overdue') ?? [];
   const paidBills = bills?.filter((b) => b.status === 'paid') ?? [];
@@ -34,15 +36,15 @@ export default function TenantBillsPage() {
 
       <Tabs.Root defaultValue="pending">
         <Tabs.List className="flex gap-1 p-1 bg-slate-light rounded-lg w-fit mb-4">
-          {['pending', 'paid'].map((tab) => (
-            <Tabs.Trigger
-              key={tab}
-              value={tab}
-              className="px-4 py-1.5 rounded-md text-sm font-medium text-slate capitalize data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition"
-            >
-              {tab === 'pending' ? `Due (${pendingBills.length})` : `Paid (${paidBills.length})`}
-            </Tabs.Trigger>
-          ))}
+          <Tabs.Trigger value="pending" className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition">
+            Due ({pendingBills.length})
+          </Tabs.Trigger>
+          <Tabs.Trigger value="paid" className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition">
+            Paid ({paidBills.length})
+          </Tabs.Trigger>
+          <Tabs.Trigger value="history" className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition flex items-center gap-1">
+            <History className="w-3.5 h-3.5" /> History
+          </Tabs.Trigger>
         </Tabs.List>
 
         <Tabs.Content value="pending" className="space-y-3">
@@ -138,6 +140,47 @@ export default function TenantBillsPage() {
               </Card>
             );
           })}
+        </Tabs.Content>
+
+        <Tabs.Content value="history" className="space-y-3">
+          {historyData && (
+            <Card>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate uppercase tracking-wide mb-0.5">Total Paid This Financial Year</p>
+                  <p className="text-lg font-bold text-navy money">{formatCurrency(historyData.totalThisFY)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate">Apr {new Date(historyData.fyStart).getFullYear()} – Mar {new Date(historyData.fyStart).getFullYear() + 1}</p>
+                </div>
+              </div>
+            </Card>
+          )}
+          {!historyData?.payments?.length && (
+            <div className="p-8 text-center">
+              <p className="text-2xl mb-2">📋</p>
+              <p className="font-semibold text-navy">No payments yet</p>
+              <p className="text-sm text-slate">Your payment history will appear here</p>
+            </div>
+          )}
+          {historyData?.payments?.map((payment) => (
+            <Card key={payment.id} className="py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-navy money">{formatCurrency(Number(payment.amount_paid))}</p>
+                  <p className="text-xs text-slate mt-0.5">
+                    {payment.bill.cycle?.cycle_month
+                      ? new Date(payment.bill.cycle.cycle_month).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+                      : '—'}
+                    {' · '}
+                    <span className="capitalize">{payment.payment_method.replace('_', ' ')}</span>
+                    {payment.upi_ref && ` · ${payment.upi_ref}`}
+                  </p>
+                </div>
+                <p className="text-xs text-slate">{format(new Date(payment.paid_at), 'dd MMM yyyy')}</p>
+              </div>
+            </Card>
+          ))}
         </Tabs.Content>
       </Tabs.Root>
 

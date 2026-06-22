@@ -25,14 +25,14 @@ import { useRouter } from 'next/navigation';
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dashboard/properties', label: 'Properties', icon: Building2 },
-  { href: '/dashboard/units', label: 'Units', icon: DoorOpen },
+  // { href: '/dashboard/units', label: 'Units', icon: DoorOpen },          // accessible via Properties
   { href: '/dashboard/tenants', label: 'Tenants', icon: Users },
-  { href: '/dashboard/leases', label: 'Leases', icon: FileText },
+  // { href: '/dashboard/leases', label: 'Leases', icon: FileText },        // accessible via Tenants
   { href: '/dashboard/billing', label: 'Billing', icon: Zap },
   { href: '/dashboard/payments', label: 'Payments', icon: CreditCard },
   { href: '/dashboard/maintenance', label: 'Maintenance', icon: Wrench },
   { href: '/dashboard/notices', label: 'Notices', icon: Megaphone },
-  { href: '/dashboard/messages', label: 'Messages', icon: MessageSquare },
+  // { href: '/dashboard/messages', label: 'Messages', icon: MessageSquare }, // WhatsApp used for MVP
   { href: '/dashboard/reports', label: 'Reports', icon: BarChart3 },
   { href: '/dashboard/documents', label: 'Documents', icon: FolderOpen },
   { href: '/dashboard/templates', label: 'Templates', icon: BookTemplate },

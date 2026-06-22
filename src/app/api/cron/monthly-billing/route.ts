@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { startOfMonth } from 'date-fns';
+import { startOfMonth, addMonths } from 'date-fns';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +14,44 @@ export async function GET(request: Request) {
   const cycleMonth = startOfMonth(now);
   // Landlord has until the 15th to enter readings
   const readingsDueBy = new Date(now.getFullYear(), now.getMonth(), 15);
+
+  // --- Rent escalation check ---
+  const leasesForEscalation = await prisma.lease.findMany({
+    where: {
+      status: 'active',
+      deleted_at: null,
+      next_escalation_date: { lte: now },
+      escalation_rate: { not: null },
+    },
+  });
+
+  for (const lease of leasesForEscalation) {
+    if (!lease.escalation_rate) continue;
+    const currentRent = Number(lease.monthly_rent);
+    const rate = Number(lease.escalation_rate);
+    const newRent = Math.round(currentRent * (1 + rate / 100));
+
+    await prisma.leaseAmendment.create({
+      data: {
+        lease_id: lease.id,
+        field_changed: 'monthly_rent',
+        old_value: String(currentRent),
+        new_value: String(newRent),
+        effective_from: now,
+        amended_by: lease.tenant_id, // system-generated; tenant_id used as placeholder
+        note: `Auto-escalation: ${rate}% annual increase`,
+      },
+    });
+
+    await prisma.lease.update({
+      where: { id: lease.id },
+      data: {
+        monthly_rent: newRent,
+        next_escalation_date: addMonths(lease.next_escalation_date!, 12),
+      },
+    });
+  }
+  // --- End escalation check ---
 
   const activeLeases = await prisma.lease.findMany({
     where: { status: 'active', deleted_at: null },
@@ -53,6 +91,10 @@ export async function GET(request: Request) {
     }
 
     for (const lease of leases) {
+      // Skip if billing hasn't started yet for pre-existing tenants
+      const billingStart = lease.billing_start_date ?? lease.start_date;
+      if (billingStart > cycleMonth) continue;
+
       const existing = await prisma.bill.findFirst({
         where: { cycle_id: cycle.id, lease_id: lease.id },
       });

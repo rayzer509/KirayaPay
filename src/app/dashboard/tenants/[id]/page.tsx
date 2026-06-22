@@ -15,7 +15,8 @@ import { downloadReceipt } from '@/lib/receipt';
 import {
   User, Phone, Mail, Home, Zap, Droplets, Calendar,
   ChevronDown, ChevronUp, Download, ArrowLeft, Wrench,
-  FileText, AlertCircle, UserX, MailCheck
+  FileText, AlertCircle, UserX, MailCheck, ShieldCheck,
+  BadgeIndianRupee, CreditCard
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -30,15 +31,38 @@ export default function TenantDetailPage() {
   const { data: tenant, isLoading } = trpc.tenants.get.useQuery({ id: params.id });
   const { data: bills } = trpc.billing.listBills.useQuery({ tenant_id: params.id, status: 'all' });
   const { data: maintenance } = trpc.maintenance.list.useQuery({ status: 'all' });
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [showPoliceModal, setShowPoliceModal] = useState(false);
+  const [showOpeningBalModal, setShowOpeningBalModal] = useState(false);
+  const [depositCollectedAt, setDepositCollectedAt] = useState('');
+  const [depositVia, setDepositVia] = useState('cash');
+  const [policeStatus, setPoliceStatus] = useState('pending');
+  const [policeDate, setPoliceDate] = useState('');
+  const [obPaidAt, setObPaidAt] = useState('');
+  const [obPaidVia, setObPaidVia] = useState('cash');
+
+  const utils = trpc.useContext();
   const offboard = trpc.tenants.offboard.useMutation();
   const resendInvite = trpc.tenants.resendInvite.useMutation();
+  const updateDeposit = trpc.leases.updateDeposit.useMutation({
+    onSuccess: () => { utils.tenants.get.invalidate({ id: params.id }); setShowDepositModal(false); toast.success('Deposit updated'); },
+    onError: () => toast.error('Failed to update deposit'),
+  });
+  const updatePolice = trpc.leases.updatePoliceVerification.useMutation({
+    onSuccess: () => { utils.tenants.get.invalidate({ id: params.id }); setShowPoliceModal(false); toast.success('Police verification updated'); },
+    onError: () => toast.error('Failed to update'),
+  });
+  const markObPaid = trpc.leases.markOpeningBalancePaid.useMutation({
+    onSuccess: () => { utils.tenants.get.invalidate({ id: params.id }); setShowOpeningBalModal(false); toast.success('Opening balance marked as paid'); },
+    onError: () => toast.error('Failed to update'),
+  });
 
   async function handleResendInvite() {
     try {
       await resendInvite.mutateAsync({ id: params.id });
-      toast.success('Invite email resent');
+      toast.success('New password emailed to tenant');
     } catch {
-      toast.error('Failed to resend invite');
+      toast.error('Failed to reset password');
     }
   }
 
@@ -125,10 +149,10 @@ export default function TenantDetailPage() {
                 size="sm"
                 onClick={handleResendInvite}
                 loading={resendInvite.isLoading}
-                title="Resend invite email"
+                title="Send new password to tenant's email"
               >
                 <MailCheck size={14} className="mr-1" />
-                Resend Invite
+                Reset Password
               </Button>
               <Button
                 variant="ghost"
@@ -214,6 +238,104 @@ export default function TenantDetailPage() {
                             : <span className="text-coral">Pending</span>}
                         </p>
                       </div>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Security Deposit */}
+                <Card>
+                  <div className="p-1">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-navy flex items-center gap-2">
+                        <BadgeIndianRupee size={15} className="text-saffron" /> Security Deposit
+                      </h3>
+                      <Button variant="ghost" size="sm" onClick={() => setShowDepositModal(true)}>
+                        Update
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                      <div>
+                        <p className="text-slate text-xs uppercase tracking-wide mb-1">Amount</p>
+                        <p className="text-navy font-mono font-semibold">{formatCurrency(Number(activeLease.security_deposit))}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate text-xs uppercase tracking-wide mb-1">Collected</p>
+                        <p className={activeLease.deposit_collected ? 'text-sage font-medium' : 'text-coral'}>
+                          {activeLease.deposit_collected
+                            ? `Yes · ${activeLease.deposit_collected_at ? format(new Date(activeLease.deposit_collected_at), 'dd MMM yyyy') : ''}${activeLease.deposit_collected_via ? ` · ${activeLease.deposit_collected_via}` : ''}`
+                            : 'Not yet collected'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate text-xs uppercase tracking-wide mb-1">Refund Status</p>
+                        <p className="text-navy capitalize">{activeLease.deposit_refund_status ?? 'held'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Opening Balance */}
+                {activeLease.opening_balance && Number(activeLease.opening_balance) > 0 && (
+                  <Card>
+                    <div className="p-1">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-navy flex items-center gap-2">
+                          <CreditCard size={15} className="text-saffron" /> Prior Outstanding Dues
+                        </h3>
+                        {!activeLease.opening_balance_paid_at && (
+                          <Button variant="ghost" size="sm" onClick={() => setShowOpeningBalModal(true)}>
+                            Mark Paid
+                          </Button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+                        <div>
+                          <p className="text-slate text-xs uppercase tracking-wide mb-1">Amount</p>
+                          <p className="text-navy font-mono font-semibold">{formatCurrency(Number(activeLease.opening_balance))}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate text-xs uppercase tracking-wide mb-1">Note</p>
+                          <p className="text-navy">{activeLease.opening_balance_note || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate text-xs uppercase tracking-wide mb-1">Status</p>
+                          {activeLease.opening_balance_paid_at
+                            ? <p className="text-sage font-medium">Paid · {format(new Date(activeLease.opening_balance_paid_at), 'dd MMM yyyy')}</p>
+                            : <p className="text-coral font-medium">Outstanding</p>}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Police Verification */}
+                <Card>
+                  <div className="p-1">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-navy flex items-center gap-2">
+                        <ShieldCheck size={15} className="text-saffron" /> Police Verification
+                      </h3>
+                      <Button variant="ghost" size="sm" onClick={() => setShowPoliceModal(true)}>
+                        Update
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                      <div>
+                        <p className="text-slate text-xs uppercase tracking-wide mb-1">Status</p>
+                        <p className={
+                          activeLease.police_verification_status === 'verified' ? 'text-sage font-medium capitalize' :
+                          activeLease.police_verification_status === 'submitted' ? 'text-saffron font-medium capitalize' :
+                          'text-coral font-medium capitalize'
+                        }>
+                          {activeLease.police_verification_status ?? 'pending'}
+                        </p>
+                      </div>
+                      {activeLease.police_verification_date && (
+                        <div>
+                          <p className="text-slate text-xs uppercase tracking-wide mb-1">Date</p>
+                          <p className="text-navy">{format(new Date(activeLease.police_verification_date), 'dd MMM yyyy')}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -440,6 +562,141 @@ export default function TenantDetailPage() {
           </Tabs.Content>
         </Tabs.Root>
       </main>
+
+      {/* Deposit modal */}
+      <Modal open={showDepositModal} onClose={() => setShowDepositModal(false)} title="Update Security Deposit">
+        {activeLease && (
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" defaultChecked={activeLease.deposit_collected}
+                onChange={(e) => {
+                  if (!e.target.checked) updateDeposit.mutate({ id: activeLease.id, deposit_collected: false });
+                }}
+                className="w-4 h-4 rounded"
+              />
+              <span className="text-navy font-medium">Deposit collected</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate mb-1">Date Collected</label>
+                <input type="date" value={depositCollectedAt} onChange={(e) => setDepositCollectedAt(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-navy" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate mb-1">Method</label>
+                <select value={depositVia} onChange={(e) => setDepositVia(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-navy">
+                  {['cash','upi','cheque','bank_transfer'].map((v) => (
+                    <option key={v} value={v}>{v.replace('_', ' ')}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate mb-1">Refund Status</label>
+              <select defaultValue={activeLease.deposit_refund_status ?? 'held'}
+                onChange={(e) => {}}
+                id="refund-status-select"
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-navy">
+                {['held','partial','refunded'].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setShowDepositModal(false)}>Cancel</Button>
+              <Button
+                loading={updateDeposit.isLoading}
+                onClick={() => {
+                  const refundStatus = (document.getElementById('refund-status-select') as HTMLSelectElement)?.value;
+                  updateDeposit.mutate({
+                    id: activeLease.id,
+                    deposit_collected: true,
+                    deposit_collected_at: depositCollectedAt || undefined,
+                    deposit_collected_via: depositVia,
+                    deposit_refund_status: (refundStatus as 'held' | 'partial' | 'refunded') ?? 'held',
+                  });
+                }}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Opening balance modal */}
+      <Modal open={showOpeningBalModal} onClose={() => setShowOpeningBalModal(false)} title="Mark Prior Dues as Paid">
+        {activeLease && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate">
+              Amount: <span className="font-semibold text-navy">{formatCurrency(Number(activeLease.opening_balance))}</span>
+              {activeLease.opening_balance_note && ` — ${activeLease.opening_balance_note}`}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate mb-1">Date Received</label>
+                <input type="date" value={obPaidAt} onChange={(e) => setObPaidAt(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-navy" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate mb-1">Method</label>
+                <select value={obPaidVia} onChange={(e) => setObPaidVia(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-navy">
+                  {['cash','upi','bank_transfer','other'].map((v) => (
+                    <option key={v} value={v}>{v.replace('_', ' ')}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setShowOpeningBalModal(false)}>Cancel</Button>
+              <Button
+                loading={markObPaid.isLoading}
+                disabled={!obPaidAt}
+                onClick={() => markObPaid.mutate({ id: activeLease.id, paid_via: obPaidVia as 'cash' | 'upi' | 'bank_transfer' | 'other', paid_at: obPaidAt })}
+              >
+                Mark Paid
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Police verification modal */}
+      <Modal open={showPoliceModal} onClose={() => setShowPoliceModal(false)} title="Police Verification">
+        {activeLease && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate mb-1">Status</label>
+              <select value={policeStatus} onChange={(e) => setPoliceStatus(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-navy">
+                <option value="pending">Pending</option>
+                <option value="submitted">Submitted</option>
+                <option value="verified">Verified</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate mb-1">Date</label>
+              <input type="date" value={policeDate} onChange={(e) => setPoliceDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-navy" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setShowPoliceModal(false)}>Cancel</Button>
+              <Button
+                loading={updatePolice.isLoading}
+                onClick={() => updatePolice.mutate({
+                  id: activeLease.id,
+                  police_verification_status: policeStatus as 'pending' | 'submitted' | 'verified',
+                  police_verification_date: policeDate || undefined,
+                })}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={showOffboard} onClose={() => setShowOffboard(false)} title="Remove Tenant">
         <p className="text-sm text-slate mb-1">

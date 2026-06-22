@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { FileText, Wrench, MessageSquare, LogOut, ScrollText, Bell } from 'lucide-react';
+import { FileText, Wrench, MessageSquare, LogOut, ScrollText, Bell, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { trpc } from '@/lib/trpc';
@@ -12,7 +12,8 @@ const NAV = [
   { href: '/tenant/lease', label: 'Lease', icon: ScrollText },
   { href: '/tenant/notices', label: 'Notices', icon: Bell },
   { href: '/tenant/maintenance', label: 'Maintenance', icon: Wrench },
-  { href: '/tenant/messages', label: 'Messages', icon: MessageSquare },
+  { href: '/tenant/documents', label: 'Documents', icon: FolderOpen },
+  // { href: '/tenant/messages', label: 'Messages', icon: MessageSquare }, // WhatsApp used for MVP
 ];
 
 export function TenantNav() {

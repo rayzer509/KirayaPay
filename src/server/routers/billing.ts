@@ -213,10 +213,29 @@ export const billingRouter = router({
       return bills;
     }),
 
+  voidBill: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const bill = await ctx.prisma.bill.findUnique({ where: { id: input.id } });
+      if (!bill) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (bill.status === 'paid') throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot void a fully paid bill' });
+      if (bill.status === 'void') throw new TRPCError({ code: 'BAD_REQUEST', message: 'Bill is already void' });
+
+      await ctx.prisma.bill.update({ where: { id: input.id }, data: { status: 'void' } });
+
+      // Roll back cycle to open so landlord can re-enter readings
+      await ctx.prisma.billingCycle.update({
+        where: { id: bill.cycle_id },
+        data: { status: 'open' },
+      });
+
+      return { ok: true };
+    }),
+
   billsForTenant: protectedProcedure
     .input(
       z.object({
-        status: z.enum(['draft', 'sent', 'paid', 'partial', 'overdue', 'all']).default('all'),
+        status: z.enum(['draft', 'sent', 'paid', 'partial', 'overdue', 'void', 'all']).default('all'),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -234,6 +253,33 @@ export const billingRouter = router({
         orderBy: { created_at: 'desc' },
       });
     }),
+
+  paymentHistory: protectedProcedure.query(async ({ ctx }) => {
+    const payments = await ctx.prisma.payment.findMany({
+      where: { bill: { lease: { tenant_id: ctx.user!.id, deleted_at: null } } },
+      include: {
+        bill: {
+          include: {
+            cycle: true,
+            unit: { include: { property: true } },
+          },
+        },
+      },
+      orderBy: { paid_at: 'desc' },
+    });
+
+    // Indian financial year: April 1 to March 31
+    const now = new Date();
+    const fyStart = now.getMonth() >= 3
+      ? new Date(now.getFullYear(), 3, 1)
+      : new Date(now.getFullYear() - 1, 3, 1);
+
+    const totalThisFY = payments
+      .filter((p) => new Date(p.paid_at) >= fyStart)
+      .reduce((sum, p) => sum + Number(p.amount_paid), 0);
+
+    return { payments, totalThisFY, fyStart };
+  }),
 
   getBill: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -256,7 +302,7 @@ export const billingRouter = router({
     .input(
       z.object({
         property_id: z.string().uuid().optional(),
-        status: z.enum(['draft', 'sent', 'paid', 'partial', 'overdue', 'all']).default('all'),
+        status: z.enum(['draft', 'sent', 'paid', 'partial', 'overdue', 'void', 'all']).default('all'),
         cycle_id: z.string().uuid().optional(),
         tenant_id: z.string().uuid().optional(),
       })

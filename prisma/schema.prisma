@@ -45,6 +45,7 @@ enum BillStatus {
   paid
   partial
   overdue
+  void
 }
 
 enum BillLineItemType {
@@ -82,7 +83,7 @@ enum DocumentEntityType {
 model User {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   full_name      String    @db.VarChar(120)
-  phone          String?   @unique @db.VarChar(15)
+  phone          String?   @db.VarChar(15)
   email          String?   @unique @db.VarChar(200)
   role           UserRole
   preferred_lang Language  @default(en)
@@ -102,7 +103,6 @@ model User {
   notices            Notice[]             @relation("NoticeCreatedBy")
   messages_sent      Message[]            @relation("MessageSender")
 
-  @@index([phone])
   @@map("users")
 }
 
@@ -177,9 +177,33 @@ model Lease {
   rent_due_day       Int         @db.SmallInt
   start_date         DateTime    @db.Date
   end_date           DateTime    @db.Date
+  billing_start_date DateTime?   @db.Date
   status             LeaseStatus
   template_id        String?     @db.Uuid
   acknowledged_at    DateTime?   @db.Timestamptz()
+
+  // Rent escalation
+  escalation_rate      Decimal?  @db.Decimal(5, 2)
+  next_escalation_date DateTime? @db.Date
+
+  // Security deposit tracking
+  deposit_collected      Boolean  @default(false)
+  deposit_collected_at   DateTime? @db.Timestamptz()
+  deposit_collected_via  String?  @db.VarChar(30)
+  deposit_refund_status  String   @default("held") @db.VarChar(20)
+  deposit_refunded_amount Decimal? @db.Decimal(10, 2)
+  deposit_refunded_at    DateTime? @db.Timestamptz()
+
+  // Opening balance (pre-existing tenants)
+  opening_balance      Decimal?  @db.Decimal(10, 2)
+  opening_balance_note String?   @db.VarChar(200)
+  opening_balance_paid_at  DateTime? @db.Timestamptz()
+  opening_balance_paid_via String?   @db.VarChar(30)
+
+  // Police verification
+  police_verification_status String   @default("pending") @db.VarChar(20)
+  police_verification_date   DateTime? @db.Date
+
   created_at         DateTime    @default(now()) @db.Timestamptz()
   deleted_at         DateTime?   @db.Timestamptz()
 
@@ -215,14 +239,15 @@ model LeaseAmendment {
 }
 
 model LeaseTemplate {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  property_id String   @db.Uuid
-  version     Int      @db.SmallInt
-  content_en  String
-  content_hi  String?
-  is_active   Boolean
-  created_by  String   @db.Uuid
-  created_at  DateTime @default(now()) @db.Timestamptz()
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id   String   @db.Uuid
+  template_type String   @default("residential") @db.VarChar(20)
+  version       Int      @db.SmallInt
+  content_en    String
+  content_hi    String?
+  is_active     Boolean
+  created_by    String   @db.Uuid
+  created_at    DateTime @default(now()) @db.Timestamptz()
 
   property Property @relation(fields: [property_id], references: [id])
   creator  User     @relation("TemplateCreatedBy", fields: [created_by], references: [id])

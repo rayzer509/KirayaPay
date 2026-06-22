@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, adminProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { getDefaultTemplate } from '@/lib/defaultTemplates';
 
 export const templatesRouter = router({
   list: adminProcedure
@@ -24,28 +25,64 @@ export const templatesRouter = router({
     .input(
       z.object({
         property_id: z.string().uuid(),
+        template_type: z.enum(['residential', 'commercial']).default('residential'),
         content_en: z.string().min(1),
         content_hi: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const latest = await ctx.prisma.leaseTemplate.findFirst({
-        where: { property_id: input.property_id },
+        where: { property_id: input.property_id, template_type: input.template_type },
         orderBy: { version: 'desc' },
       });
       const version = (latest?.version ?? 0) + 1;
 
       await ctx.prisma.leaseTemplate.updateMany({
-        where: { property_id: input.property_id, is_active: true },
+        where: { property_id: input.property_id, template_type: input.template_type, is_active: true },
         data: { is_active: false },
       });
 
       return ctx.prisma.leaseTemplate.create({
         data: {
           property_id: input.property_id,
+          template_type: input.template_type,
           version,
           content_en: input.content_en,
           content_hi: input.content_hi,
+          is_active: true,
+          created_by: ctx.user!.id,
+        },
+      });
+    }),
+
+  generateDefault: adminProcedure
+    .input(
+      z.object({
+        property_id: z.string().uuid(),
+        template_type: z.enum(['residential', 'commercial']),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { content_en, content_hi } = getDefaultTemplate(input.template_type);
+
+      const latest = await ctx.prisma.leaseTemplate.findFirst({
+        where: { property_id: input.property_id, template_type: input.template_type },
+        orderBy: { version: 'desc' },
+      });
+      const version = (latest?.version ?? 0) + 1;
+
+      await ctx.prisma.leaseTemplate.updateMany({
+        where: { property_id: input.property_id, template_type: input.template_type, is_active: true },
+        data: { is_active: false },
+      });
+
+      return ctx.prisma.leaseTemplate.create({
+        data: {
+          property_id: input.property_id,
+          template_type: input.template_type,
+          version,
+          content_en,
+          content_hi,
           is_active: true,
           created_by: ctx.user!.id,
         },
