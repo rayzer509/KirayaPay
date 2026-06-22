@@ -16,7 +16,7 @@ import {
   User, Phone, Mail, Home, Zap, Droplets, Calendar,
   ChevronDown, ChevronUp, Download, ArrowLeft, Wrench,
   FileText, AlertCircle, UserX, MailCheck, ShieldCheck,
-  BadgeIndianRupee, CreditCard
+  BadgeIndianRupee, CreditCard, FolderOpen, ExternalLink
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -174,6 +174,7 @@ export default function TenantDetailPage() {
               { value: 'lease', label: 'Lease' },
               { value: 'bills', label: `Bills${bills ? ` (${bills.length})` : ''}` },
               { value: 'maintenance', label: `Maintenance${tenantMaintenance ? ` (${tenantMaintenance.length})` : ''}` },
+              { value: 'documents', label: `Documents${tenant.documents ? ` (${tenant.documents.length})` : ''}` },
             ].map((tab) => (
               <Tabs.Trigger
                 key={tab.value}
@@ -554,6 +555,43 @@ export default function TenantDetailPage() {
                           {req.repair_cost && ` · Cost ${formatCurrency(Number(req.repair_cost))}`}
                         </p>
                       </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </Tabs.Content>
+
+          {/* ── Documents tab ───────────────────────────────────────────────── */}
+          <Tabs.Content value="documents">
+            {!tenant.documents || tenant.documents.length === 0 ? (
+              <EmptyState
+                icon={FolderOpen}
+                title="No documents uploaded"
+                description="Documents uploaded by the tenant will appear here."
+              />
+            ) : (
+              <div className="space-y-2">
+                {tenant.documents.map((doc) => (
+                  <Card key={doc.id}>
+                    <div className="flex items-center gap-3 p-1">
+                      <div className="w-8 h-8 rounded-lg bg-slate-light flex items-center justify-center shrink-0">
+                        <FileText size={15} className="text-slate" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-navy">{doc.name}</p>
+                        <p className="text-xs text-slate">
+                          {format(new Date(doc.created_at), 'dd MMM yyyy')} · {doc.file_type}
+                        </p>
+                      </div>
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-slate hover:text-navy transition px-2 py-1.5 rounded-lg hover:bg-slate-light"
+                      >
+                        <ExternalLink size={13} /> View
+                      </a>
                     </div>
                   </Card>
                 ))}
