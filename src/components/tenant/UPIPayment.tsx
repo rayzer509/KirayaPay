@@ -26,6 +26,9 @@ export function UPIPayment({ bill, onSuccess }: Props) {
   const totalPaid = bill.payments.reduce((s, p) => s + Number(p.amount_paid), 0);
   const outstanding = Number(bill.total_amount) - totalPaid;
 
+  const [payAmount, setPayAmount] = useState(String(outstanding));
+  const payAmountNum = parseFloat(payAmount) || 0;
+
   async function copyUpiId() {
     if (!upiId) return;
     await navigator.clipboard.writeText(upiId);
@@ -36,8 +39,10 @@ export function UPIPayment({ bill, onSuccess }: Props) {
 
   async function handleSubmit() {
     if (utr.length !== 12) return toast.error('UTR must be exactly 12 digits');
+    if (payAmountNum <= 0) return toast.error('Enter a valid amount');
+    if (payAmountNum > outstanding) return toast.error(`Amount cannot exceed outstanding ${formatCurrency(outstanding)}`);
     try {
-      await submitUtr.mutateAsync({ bill_id: bill.id, upi_ref: utr, amount_paid: outstanding });
+      await submitUtr.mutateAsync({ bill_id: bill.id, upi_ref: utr, amount_paid: payAmountNum });
       toast.success('Payment submitted! Landlord will verify shortly.');
       onSuccess();
     } catch (err: unknown) {
@@ -45,19 +50,30 @@ export function UPIPayment({ bill, onSuccess }: Props) {
     }
   }
 
-  const steps = [
-    'Open your UPI app (PhonePe, GPay, Paytm)',
-    'Scan the QR or enter the UPI ID',
-    `Pay exactly ${formatCurrency(outstanding)}`,
-    'Copy the 12-digit UTR and submit below',
-  ];
-
   return (
     <div className="space-y-4">
-      {/* Amount */}
-      <div className="text-center p-3 bg-saffron-light rounded-xl">
-        <p className="text-xs text-slate mb-0.5">Amount to Pay</p>
-        <p className="text-3xl font-bold money text-navy">{formatCurrency(outstanding)}</p>
+      {/* Amount input */}
+      <div className="p-3 bg-saffron-light rounded-xl">
+        <p className="text-xs text-slate mb-1 text-center">
+          Outstanding: {formatCurrency(outstanding)}
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-bold text-navy">₹</span>
+          <input
+            type="number"
+            step="1"
+            min="1"
+            max={outstanding}
+            value={payAmount}
+            onChange={(e) => setPayAmount(e.target.value)}
+            className="flex-1 text-2xl font-bold money text-navy bg-transparent border-b-2 border-saffron focus:outline-none text-center"
+          />
+        </div>
+        {payAmountNum < outstanding && payAmountNum > 0 && (
+          <p className="text-xs text-amber-700 text-center mt-1">
+            Partial payment — {formatCurrency(outstanding - payAmountNum)} will remain outstanding
+          </p>
+        )}
       </div>
 
       {/* QR */}
@@ -82,7 +98,12 @@ export function UPIPayment({ bill, onSuccess }: Props) {
 
       {/* Steps */}
       <ol className="space-y-1.5">
-        {steps.map((step, i) => (
+        {[
+          'Open your UPI app (PhonePe, GPay, Paytm)',
+          'Scan the QR or enter the UPI ID',
+          `Pay the amount shown above`,
+          'Copy the 12-digit UTR and submit below',
+        ].map((step, i) => (
           <li key={i} className="flex items-start gap-2.5 text-sm text-slate">
             <span className="w-5 h-5 rounded-full bg-saffron-light text-saffron text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
               {i + 1}
@@ -111,7 +132,7 @@ export function UPIPayment({ bill, onSuccess }: Props) {
 
       <button
         onClick={handleSubmit}
-        disabled={utr.length !== 12 || submitUtr.isLoading}
+        disabled={utr.length !== 12 || payAmountNum <= 0 || submitUtr.isLoading}
         className="w-full py-2.5 rounded-lg bg-saffron hover:bg-saffron/90 text-white font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {submitUtr.isLoading ? 'Submitting…' : 'Submit UTR for Verification'}

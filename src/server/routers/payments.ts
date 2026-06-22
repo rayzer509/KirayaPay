@@ -41,7 +41,9 @@ export const paymentsRouter = router({
           payment_method: 'cash',
           paid_at: new Date(),
           recorded_by: ctx.user!.id,
-          note: input.note ?? 'Cash payment notified by tenant',
+          note: input.note
+            ? `${input.note} — Pending landlord verification`
+            : 'Cash payment — Pending landlord verification',
         },
       });
     }),
@@ -87,6 +89,41 @@ export const paymentsRouter = router({
       ]);
 
       return payment;
+    }),
+
+  confirmPayment: adminProcedure
+    .input(z.object({ payment_id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const payment = await ctx.prisma.payment.findUnique({
+        where: { id: input.payment_id },
+        include: { bill: { include: { payments: true } } },
+      });
+      if (!payment) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      // Strip "Pending" prefix from note to mark as confirmed
+      const confirmedNote = (payment.note ?? '')
+        .replace(/^Pending landlord verification$/, 'Confirmed')
+        .replace(/ — Pending landlord verification$/, '')
+        .replace(/^Cash payment — Pending landlord verification$/, 'Cash payment confirmed')
+        .trim() || 'Confirmed';
+
+      // Recalculate bill status based on ALL payments (current + existing confirmed)
+      const allPayments = payment.bill.payments;
+      const totalPaid = allPayments.reduce((s, p) => s + Number(p.amount_paid), 0);
+      const newStatus = totalPaid >= Number(payment.bill.total_amount) ? 'paid' : 'partial';
+
+      const [updated] = await ctx.prisma.$transaction([
+        ctx.prisma.payment.update({
+          where: { id: input.payment_id },
+          data: { note: confirmedNote },
+        }),
+        ctx.prisma.bill.update({
+          where: { id: payment.bill_id },
+          data: { status: newStatus },
+        }),
+      ]);
+
+      return updated;
     }),
 
   pendingVerification: adminProcedure.query(async ({ ctx }) => {

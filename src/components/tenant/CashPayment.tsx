@@ -15,9 +15,14 @@ export function CashPayment({ bill, onSuccess }: { bill: Bill; onSuccess: () => 
   const totalPaid = bill.payments.reduce((s, p) => s + Number(p.amount_paid), 0);
   const outstanding = Number(bill.total_amount) - totalPaid;
 
+  const [payAmount, setPayAmount] = useState(String(outstanding));
+  const payAmountNum = parseFloat(payAmount) || 0;
+
   async function handleNotify() {
+    if (payAmountNum <= 0) return toast.error('Enter a valid amount');
+    if (payAmountNum > outstanding) return toast.error(`Amount cannot exceed outstanding ${formatCurrency(outstanding)}`);
     try {
-      await notifyCash.mutateAsync({ bill_id: bill.id, amount_paid: outstanding, note: note || undefined });
+      await notifyCash.mutateAsync({ bill_id: bill.id, amount_paid: payAmountNum, note: note || undefined });
       toast.success('Landlord has been notified of your cash payment');
       onSuccess();
     } catch (err: unknown) {
@@ -27,9 +32,28 @@ export function CashPayment({ bill, onSuccess }: { bill: Bill; onSuccess: () => 
 
   return (
     <div className="space-y-4">
-      <div className="text-center p-3 bg-slate-light rounded-xl">
-        <p className="text-xs text-slate mb-0.5">Amount to Pay in Cash</p>
-        <p className="text-3xl font-bold money text-navy">{formatCurrency(outstanding)}</p>
+      {/* Amount input */}
+      <div className="p-3 bg-slate-light rounded-xl">
+        <p className="text-xs text-slate mb-1 text-center">
+          Outstanding: {formatCurrency(outstanding)}
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-bold text-navy">₹</span>
+          <input
+            type="number"
+            step="1"
+            min="1"
+            max={outstanding}
+            value={payAmount}
+            onChange={(e) => setPayAmount(e.target.value)}
+            className="flex-1 text-2xl font-bold money text-navy bg-transparent border-b-2 border-navy/30 focus:border-navy focus:outline-none text-center"
+          />
+        </div>
+        {payAmountNum < outstanding && payAmountNum > 0 && (
+          <p className="text-xs text-amber-700 text-center mt-1">
+            Partial payment — {formatCurrency(outstanding - payAmountNum)} will remain outstanding
+          </p>
+        )}
       </div>
 
       <p className="text-sm text-slate text-center">
@@ -48,10 +72,10 @@ export function CashPayment({ bill, onSuccess }: { bill: Bill; onSuccess: () => 
 
       <button
         onClick={handleNotify}
-        disabled={notifyCash.isLoading}
+        disabled={payAmountNum <= 0 || notifyCash.isLoading}
         className="w-full py-2.5 rounded-lg bg-navy hover:bg-navy/90 text-white font-semibold text-sm transition disabled:opacity-50"
       >
-        {notifyCash.isLoading ? 'Notifying…' : '📬 Notify Landlord'}
+        {notifyCash.isLoading ? 'Notifying…' : 'Notify Landlord'}
       </button>
     </div>
   );

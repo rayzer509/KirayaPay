@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
-import { CreditCard, CheckCircle2 } from 'lucide-react';
+import { CreditCard, CheckCircle2, ClipboardList } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import toast from 'react-hot-toast';
@@ -21,11 +21,25 @@ export default function PaymentsPage() {
   const [method, setMethod] = useState<'upi' | 'cash' | 'bank_transfer' | 'other'>('upi');
   const [utrRef, setUtrRef] = useState('');
 
-  const { data: pending, refetch: refetchPending } = trpc.payments.pendingVerification.useQuery();
-  const { data: allPayments } = trpc.payments.list.useQuery({});
+  const { data: tenantSubmissions, refetch: refetchSubmissions } = trpc.payments.pendingVerification.useQuery();
+  const { data: allPayments, refetch: refetchAll } = trpc.payments.list.useQuery({});
+  const pendingBills = trpc.billing.listBills.useQuery({ status: 'sent' });
+
+  const confirmPayment = trpc.payments.confirmPayment.useMutation({
+    onSuccess: () => {
+      toast.success('Payment confirmed');
+      refetchSubmissions();
+      pendingBills.refetch();
+      refetchAll();
+    },
+    onError: (err) => toast.error(err.message ?? 'Failed to confirm'),
+  });
+
   const markPaid = trpc.payments.markPaid.useMutation();
 
-  const pendingBills = trpc.billing.listBills.useQuery({ status: 'sent' });
+  // Bills where the tenant already submitted a payment — don't show in manual section
+  const submittedBillIds = new Set(tenantSubmissions?.map((p) => p.bill_id) ?? []);
+  const unsubmittedBills = pendingBills.data?.filter((b) => !submittedBillIds.has(b.id)) ?? [];
 
   async function handleMarkPaid() {
     if (!markingBillId || !amount) return;
@@ -40,8 +54,8 @@ export default function PaymentsPage() {
       setMarkingBillId(null);
       setAmount('');
       setUtrRef('');
-      refetchPending();
       pendingBills.refetch();
+      refetchAll();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to record payment');
     }
@@ -64,33 +78,107 @@ export default function PaymentsPage() {
             ))}
           </Tabs.List>
 
-          <Tabs.Content value="pending" className="space-y-3">
-            {/* Unpaid bills awaiting marking */}
-            {pendingBills.data?.map((bill) => (
-              <Card key={bill.id}>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-navy">{bill.lease.tenant.full_name}</p>
-                    <p className="text-sm text-slate">{bill.unit.unit_number} · {bill.unit.property.name}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="money text-navy text-lg">{formatCurrency(Number(bill.total_amount))}</p>
-                    <StatusPill status={bill.status} />
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="sage"
-                    onClick={() => { setMarkingBillId(bill.id); setAmount(String(Number(bill.total_amount))); }}
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    Mark Paid
-                  </Button>
+          <Tabs.Content value="pending" className="space-y-6">
+            {/* Section 1: Tenant-submitted payments awaiting landlord confirmation */}
+            <div>
+              <h3 className="text-sm font-semibold text-slate uppercase tracking-wide mb-3">
+                Tenant Submissions
+              </h3>
+              {tenantSubmissions && tenantSubmissions.length > 0 ? (
+                <div className="space-y-3">
+                  {tenantSubmissions.map((payment) => (
+                    <Card key={payment.id}>
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-navy">
+                            {payment.bill.lease.tenant.full_name}
+                          </p>
+                          <p className="text-sm text-slate">
+                            {payment.bill.unit.unit_number} · {payment.bill.unit.property.name}
+                          </p>
+                          <div className="flex items-center gap-2 flex-wrap mt-1">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-light text-slate capitalize">
+                              {payment.payment_method === 'upi' ? 'UPI' : 'Cash'}
+                            </span>
+                            {payment.upi_ref && (
+                              <span className="text-xs reading bg-amber-50 text-amber-800 px-2 py-0.5 rounded-full font-mono">
+                                UTR: {payment.upi_ref}
+                              </span>
+                            )}
+                            {payment.note && (
+                              <span className="text-xs text-slate italic">{payment.note}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="money text-navy text-lg">
+                              {formatCurrency(Number(payment.amount_paid))}
+                            </p>
+                            <p className="text-xs text-slate">
+                              {formatDateTime(payment.paid_at)}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="sage"
+                            loading={confirmPayment.isLoading}
+                            onClick={() => confirmPayment.mutate({ payment_id: payment.id })}
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            Confirm
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
                 </div>
-              </Card>
-            ))}
-            {pendingBills.data?.length === 0 && (
-              <EmptyState icon={CreditCard} title="No pending bills" description="All bills have been settled" />
-            )}
+              ) : (
+                <p className="text-sm text-slate italic">No pending tenant submissions</p>
+              )}
+            </div>
+
+            {/* Section 2: Bills with no tenant submission — manual recording */}
+            <div>
+              <h3 className="text-sm font-semibold text-slate uppercase tracking-wide mb-3">
+                Record Offline Payment
+              </h3>
+              {unsubmittedBills.length > 0 ? (
+                <div className="space-y-3">
+                  {unsubmittedBills.map((bill) => (
+                    <Card key={bill.id}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-semibold text-navy">{bill.lease.tenant.full_name}</p>
+                          <p className="text-sm text-slate">
+                            {bill.unit.unit_number} · {bill.unit.property.name}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="money text-navy text-lg">
+                            {formatCurrency(Number(bill.total_amount))}
+                          </p>
+                          <StatusPill status={bill.status} />
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setMarkingBillId(bill.id);
+                            setAmount(String(Number(bill.total_amount)));
+                          }}
+                        >
+                          <ClipboardList className="w-4 h-4" />
+                          Record
+                        </Button>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate italic">No unpaid bills</p>
+              )}
+            </div>
           </Tabs.Content>
 
           <Tabs.Content value="all">
@@ -105,20 +193,31 @@ export default function PaymentsPage() {
                         <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Amount</th>
                         <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Method</th>
                         <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">UTR</th>
+                        <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Status</th>
                         <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Date</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {allPayments.map((payment) => (
-                        <tr key={payment.id} className="border-b border-border last:border-0 hover:bg-bg">
-                          <td className="px-5 py-3.5 font-medium text-navy">{payment.bill.lease.tenant.full_name}</td>
-                          <td className="px-5 py-3.5 text-slate">{payment.bill.unit.unit_number}</td>
-                          <td className="px-5 py-3.5 money text-sage">{formatCurrency(Number(payment.amount_paid))}</td>
-                          <td className="px-5 py-3.5 text-slate capitalize">{payment.payment_method}</td>
-                          <td className="px-5 py-3.5 reading text-slate text-xs">{payment.upi_ref ?? '—'}</td>
-                          <td className="px-5 py-3.5 text-slate text-xs">{formatDateTime(payment.paid_at)}</td>
-                        </tr>
-                      ))}
+                      {allPayments.map((payment) => {
+                        const isPending = payment.note?.includes('Pending');
+                        return (
+                          <tr key={payment.id} className="border-b border-border last:border-0 hover:bg-bg">
+                            <td className="px-5 py-3.5 font-medium text-navy">{payment.bill.lease.tenant.full_name}</td>
+                            <td className="px-5 py-3.5 text-slate">{payment.bill.unit.unit_number}</td>
+                            <td className="px-5 py-3.5 money text-sage">{formatCurrency(Number(payment.amount_paid))}</td>
+                            <td className="px-5 py-3.5 text-slate capitalize">{payment.payment_method}</td>
+                            <td className="px-5 py-3.5 reading text-slate text-xs">{payment.upi_ref ?? '—'}</td>
+                            <td className="px-5 py-3.5">
+                              {isPending ? (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Pending</span>
+                              ) : (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-sage-light text-sage">Confirmed</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5 text-slate text-xs">{formatDateTime(payment.paid_at)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
