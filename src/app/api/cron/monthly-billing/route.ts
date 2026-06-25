@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { startOfMonth, addMonths } from 'date-fns';
+import { endOfMonth, startOfMonth, addMonths } from 'date-fns';
 
 export const runtime = 'nodejs';
 
@@ -103,7 +103,7 @@ export async function GET(request: Request) {
       const rent = Number(lease.monthly_rent);
       const dueDate = new Date(now.getFullYear(), now.getMonth(), lease.rent_due_day);
 
-      await prisma.bill.create({
+      const bill = await prisma.bill.create({
         data: {
           cycle_id: cycle.id,
           unit_id: lease.unit_id,
@@ -124,6 +124,26 @@ export async function GET(request: Request) {
               },
             ],
           },
+        },
+        include: { line_items: true },
+      });
+
+      const rentLineItem = bill.line_items.find((item) => item.type === 'rent');
+      await prisma.charge.create({
+        data: {
+          bill_id: bill.id,
+          bill_line_item_id: rentLineItem?.id,
+          lease_id: lease.id,
+          type: 'rent',
+          billing_mode: 'prepaid',
+          title: `${cycleMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })} Rent`,
+          description: 'Monthly rent billed in advance',
+          service_period_start: cycleMonth,
+          service_period_end: endOfMonth(cycleMonth),
+          issue_date: now,
+          due_date: dueDate,
+          amount: rent,
+          status: 'unpaid',
         },
       });
       billsCreated++;

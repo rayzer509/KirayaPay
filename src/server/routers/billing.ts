@@ -3,14 +3,59 @@ import { router, adminProcedure, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { calculateBill, detectAnomaly } from '@/lib/billing';
 import { toDecimalNumber } from '@/lib/utils';
-import { addDays, startOfMonth } from 'date-fns';
+import { addDays, endOfMonth, startOfMonth } from 'date-fns';
+
+function chargeTypeForLineItem(type: string) {
+  if (type === 'rent') return 'rent';
+  if (type === 'water_consumption') return 'water';
+  if (type === 'elec_consumption' || type === 'fixed_connection') return 'electricity';
+  return 'other';
+}
+
+async function syncChargesForBill(ctx: { prisma: any }, bill: any, cycleMonth: Date) {
+  const existingCharges = await ctx.prisma.charge.findMany({
+    where: { bill_id: bill.id },
+    select: { bill_line_item_id: true },
+  });
+  const existingLineItemIds = new Set(existingCharges.map((c: { bill_line_item_id: string | null }) => c.bill_line_item_id));
+
+  const servicePeriodStart = startOfMonth(cycleMonth);
+  const servicePeriodEnd = endOfMonth(cycleMonth);
+  const issueDate = new Date();
+
+  for (const item of bill.line_items) {
+    if (existingLineItemIds.has(item.id)) continue;
+    const isRent = item.type === 'rent';
+
+    await ctx.prisma.charge.create({
+      data: {
+        bill_id: bill.id,
+        bill_line_item_id: item.id,
+        lease_id: bill.lease_id,
+        type: chargeTypeForLineItem(item.type),
+        billing_mode: isRent ? 'prepaid' : 'postpaid',
+        title: item.description,
+        description: item.description,
+        service_period_start: servicePeriodStart,
+        service_period_end: servicePeriodEnd,
+        issue_date: issueDate,
+        due_date: bill.due_date,
+        amount: item.amount,
+        status: 'unpaid',
+      },
+    });
+  }
+}
 
 export const billingRouter = router({
   listCycles: adminProcedure
     .input(z.object({ property_id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.prisma.billingCycle.findMany({
-        where: { property_id: input.property_id },
+        where: {
+          property_id: input.property_id,
+          ...(ctx.user!.role === 'owner' ? { property: { owner_id: ctx.user!.id } } : {}),
+        },
         include: {
           meter_readings: true,
           bills: { include: { payments: true } },
@@ -38,6 +83,9 @@ export const billingRouter = router({
         },
       });
       if (!cycle) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (ctx.user!.role === 'owner' && cycle.property.owner_id !== ctx.user!.id) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
       return cycle;
     }),
 
@@ -172,7 +220,6 @@ export const billingRouter = router({
 
         let bill;
         if (draftBill) {
-          // Append utility line items to the existing rent bill and freeze it
           const utilityItems = result.lineItems.filter((li) => li.type !== 'rent');
           const utilityTotal = utilityItems.reduce((sum, li) => sum + li.amount, 0);
 
@@ -202,6 +249,8 @@ export const billingRouter = router({
             include: { line_items: true },
           });
         }
+
+        await syncChargesForBill(ctx, bill, cycle.cycle_month);
         bills.push(bill);
       }
 
@@ -223,7 +272,6 @@ export const billingRouter = router({
 
       await ctx.prisma.bill.update({ where: { id: input.id }, data: { status: 'void' } });
 
-      // Roll back cycle to open so landlord can re-enter readings
       await ctx.prisma.billingCycle.update({
         where: { id: bill.cycle_id },
         data: { status: 'open' },
@@ -256,7 +304,10 @@ export const billingRouter = router({
 
   paymentHistory: protectedProcedure.query(async ({ ctx }) => {
     const payments = await ctx.prisma.payment.findMany({
-      where: { bill: { lease: { tenant_id: ctx.user!.id, deleted_at: null } } },
+      where: {
+        status: 'confirmed',
+        bill: { lease: { tenant_id: ctx.user!.id, deleted_at: null } },
+      },
       include: {
         bill: {
           include: {
@@ -268,7 +319,6 @@ export const billingRouter = router({
       orderBy: { paid_at: 'desc' },
     });
 
-    // Indian financial year: April 1 to March 31
     const now = new Date();
     const fyStart = now.getMonth() >= 3
       ? new Date(now.getFullYear(), 3, 1)
@@ -289,12 +339,23 @@ export const billingRouter = router({
         include: {
           line_items: { orderBy: { sort_order: 'asc' } },
           payments: true,
+          charges: {
+            include: {
+              allocations: { include: { payment: true } },
+            },
+          },
           unit: { include: { property: true } },
           cycle: true,
           lease: { include: { tenant: true } },
         },
       });
       if (!bill) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (ctx.user!.role === 'tenant' && bill.lease.tenant_id !== ctx.user!.id) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+      if (ctx.user!.role === 'owner' && bill.unit.property.owner_id !== ctx.user!.id) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
       return bill;
     }),
 
@@ -314,6 +375,7 @@ export const billingRouter = router({
           ...(input.cycle_id ? { cycle_id: input.cycle_id } : {}),
           ...(input.property_id ? { unit: { property_id: input.property_id } } : {}),
           ...(input.tenant_id ? { lease: { tenant_id: input.tenant_id } } : {}),
+          ...(ctx.user!.role === 'owner' ? { unit: { property: { owner_id: ctx.user!.id } } } : {}),
         },
         include: {
           line_items: { orderBy: { sort_order: 'asc' } },

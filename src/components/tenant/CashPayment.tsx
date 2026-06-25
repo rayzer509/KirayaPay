@@ -12,7 +12,9 @@ export function CashPayment({ bill, onSuccess }: { bill: Bill; onSuccess: () => 
   const [note, setNote] = useState('');
   const notifyCash = trpc.payments.notifyCash.useMutation();
 
-  const totalPaid = bill.payments.reduce((s, p) => s + Number(p.amount_paid), 0);
+  const totalPaid = bill.payments
+    .filter((p) => (p as any).status !== 'rejected')
+    .reduce((s, p) => s + Number(p.amount_paid), 0);
   const outstanding = Number(bill.total_amount) - totalPaid;
 
   const [payAmount, setPayAmount] = useState(String(outstanding));

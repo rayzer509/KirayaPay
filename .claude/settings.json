@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(netstat -ano)",
+      "PowerShell(Get-Process -Id 20716)",
+      "PowerShell(Stop-Process -Id 20716 -Force)",
+      "PowerShell(cd \"d:\\\\claudeVS\\\\rental-management\"; git log --oneline -5 2>$null; Write-Host \"---BRANCH---\"; git branch --show-current 2>$null; Write-Host \"---STATUS---\"; git status --short 2>$null; Write-Host \"---NOTGIT---\"; if \\(-not \\(Test-Path \".git\"\\)\\) { \"Not a git repo\" })",
+      "PowerShell($gitPaths = @\\(\"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\", \"C:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\", \"$env:LOCALAPPDATA\\\\Programs\\\\Git\\\\bin\\\\git.exe\"\\); foreach \\($g in $gitPaths\\) { if \\(Test-Path $g\\) { Write-Host \"Found: $g\"; break } }; where.exe git 2>$null)",
+      "Read(//c/Users/HP/Documents/kirayapay/.worktrees/kirayapay-money-flow/**)",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"C:\\\\Users\\\\HP\\\\Documents\\\\kirayapay\\\\.worktrees\\\\kirayapay-money-flow\"; Write-Host \"=== BRANCH ===\"; & $git branch --show-current; Write-Host \"=== LOG \\(last 5\\) ===\"; & $git log --oneline -5; Write-Host \"=== WORKTREE LIST ===\"; & $git worktree list)",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"d:\\\\claudeVS\\\\rental-management\"; if \\(Test-Path \".git\"\\) { Write-Host \"=== BRANCH ===\"; & $git branch --show-current; Write-Host \"=== LOG \\(last 5\\) ===\"; & $git log --oneline -5 } else { Write-Host \"Not a git repo or no .git folder\" })",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; & $git config --global --add safe.directory \"C:/Users/HP/Documents/kirayapay/.worktrees/kirayapay-money-flow\"; & $git config --global --add safe.directory \"C:/Users/HP/Documents/kirayapay\"; Write-Host \"Done\")",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"C:\\\\Users\\\\HP\\\\Documents\\\\kirayapay\\\\.worktrees\\\\kirayapay-money-flow\"; & $git diff --name-status \"5b873e1\" HEAD)",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"C:\\\\Users\\\\HP\\\\Documents\\\\kirayapay\\\\.worktrees\\\\kirayapay-money-flow\"; & $git diff \"5b873e1\" HEAD -- prisma/schema.prisma)",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"C:\\\\Users\\\\HP\\\\Documents\\\\kirayapay\\\\.worktrees\\\\kirayapay-money-flow\"; & $git diff \"5b873e1\" HEAD -- src/app/api/cron/monthly-billing/route.ts)",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"C:\\\\Users\\\\HP\\\\Documents\\\\kirayapay\\\\.worktrees\\\\kirayapay-money-flow\"; & $git diff \"5b873e1\" HEAD -- src/server/routers/billing.ts)",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"C:\\\\Users\\\\HP\\\\Documents\\\\kirayapay\\\\.worktrees\\\\kirayapay-money-flow\"; & $git diff \"5b873e1\" HEAD -- src/server/routers/payments.ts)",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; Set-Location \"C:\\\\Users\\\\HP\\\\Documents\\\\kirayapay\\\\.worktrees\\\\kirayapay-money-flow\"; & $git diff \"5b873e1\" HEAD -- supabase/rls-policies.sql)",
+      "PowerShell(Set-Location \"d:\\\\claudeVS\\\\rental-management\"; $env:DIRECT_URL=\"postgresql://postgres:Ananya0805%23@db.ayfimyhyokowxnnhgumq.supabase.co:5432/postgres\"; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?pgbouncer=true\"; npx prisma db push 2>&1)",
+      "PowerShell(Set-Location \"d:\\\\claudeVS\\\\rental-management\"; $env:DIRECT_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres\"; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"; npx prisma db push 2>&1)",
+      "PowerShell(Set-Location \"d:\\\\claudeVS\\\\rental-management\"; $env:NEXT_PUBLIC_SUPABASE_URL=\"https://ayfimyhyokowxnnhgumq.supabase.co\"; $env:SUPABASE_SERVICE_ROLE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5ZmlteWh5b2tvd3hubmhndW1xIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTAyNzc3NiwiZXhwIjoyMDk2NjAzNzc2fQ.32AUfp1wA0uqZ4gVb3Y5fgIk0m0tfwBthYSP-UITkik\"; $env:DATABASE_URL=\"postgresql://postgres.ayfimyhyokowxnnhgumq:Ananya0805%23@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1\"; npx ts-node --project tsconfig.json --transpile-only prisma/seed.ts 2>&1)"
+    ]
+  }
+}

@@ -56,11 +56,49 @@ enum BillLineItemType {
   other
 }
 
+enum ChargeType {
+  rent
+  electricity
+  water
+  gas
+  internet
+  maintenance
+  parking
+  security_deposit
+  repair
+  adjustment
+  other
+}
+
+enum BillingMode {
+  prepaid
+  postpaid
+  one_time
+  refundable
+  adjustment
+}
+
+enum ChargeStatus {
+  unpaid
+  submitted
+  partial
+  paid
+  overdue
+  disputed
+  void
+}
+
 enum PaymentMethod {
   upi
   cash
   bank_transfer
   other
+}
+
+enum PaymentStatus {
+  submitted
+  confirmed
+  rejected
 }
 
 enum MaintenanceStatus {
@@ -187,31 +225,32 @@ model Lease {
   next_escalation_date DateTime? @db.Date
 
   // Security deposit tracking
-  deposit_collected      Boolean  @default(false)
-  deposit_collected_at   DateTime? @db.Timestamptz()
-  deposit_collected_via  String?  @db.VarChar(30)
-  deposit_refund_status  String   @default("held") @db.VarChar(20)
-  deposit_refunded_amount Decimal? @db.Decimal(10, 2)
-  deposit_refunded_at    DateTime? @db.Timestamptz()
+  deposit_collected       Boolean   @default(false)
+  deposit_collected_at    DateTime? @db.Timestamptz()
+  deposit_collected_via   String?   @db.VarChar(30)
+  deposit_refund_status   String    @default("held") @db.VarChar(20)
+  deposit_refunded_amount Decimal?  @db.Decimal(10, 2)
+  deposit_refunded_at     DateTime? @db.Timestamptz()
 
   // Opening balance (pre-existing tenants)
-  opening_balance      Decimal?  @db.Decimal(10, 2)
-  opening_balance_note String?   @db.VarChar(200)
-  opening_balance_paid_at  DateTime? @db.Timestamptz()
-  opening_balance_paid_via String?   @db.VarChar(30)
+  opening_balance         Decimal?  @db.Decimal(10, 2)
+  opening_balance_note    String?   @db.VarChar(200)
+  opening_balance_paid_at DateTime? @db.Timestamptz()
+  opening_balance_paid_via String?  @db.VarChar(30)
 
   // Police verification
-  police_verification_status String   @default("pending") @db.VarChar(20)
+  police_verification_status String    @default("pending") @db.VarChar(20)
   police_verification_date   DateTime? @db.Date
 
-  created_at         DateTime    @default(now()) @db.Timestamptz()
-  deleted_at         DateTime?   @db.Timestamptz()
+  created_at DateTime  @default(now()) @db.Timestamptz()
+  deleted_at DateTime? @db.Timestamptz()
 
-  unit       Unit           @relation(fields: [unit_id], references: [id])
-  tenant     User           @relation("TenantLeases", fields: [tenant_id], references: [id])
-  template   LeaseTemplate? @relation(fields: [template_id], references: [id])
+  unit       Unit             @relation(fields: [unit_id], references: [id])
+  tenant     User             @relation("TenantLeases", fields: [tenant_id], references: [id])
+  template   LeaseTemplate?   @relation(fields: [template_id], references: [id])
   amendments LeaseAmendment[]
   bills      Bill[]
+  charges    Charge[]
   messages   Message[]
 
   @@index([unit_id])
@@ -317,6 +356,7 @@ model Bill {
   reading    MeterReading?  @relation(fields: [reading_id], references: [id])
   line_items BillLineItem[]
   payments   Payment[]
+  charges    Charge[]
 
   @@index([cycle_id])
   @@index([unit_id])
@@ -334,29 +374,81 @@ model BillLineItem {
   amount        Decimal          @db.Decimal(10, 2)
   sort_order    Int              @db.SmallInt
 
-  bill Bill @relation(fields: [bill_id], references: [id])
+  bill   Bill    @relation(fields: [bill_id], references: [id])
+  charge Charge?
 
   @@index([bill_id])
   @@map("bill_line_items")
 }
 
-model Payment {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  bill_id        String        @db.Uuid
-  amount_paid    Decimal       @db.Decimal(10, 2)
-  payment_method PaymentMethod
-  upi_ref        String?       @db.VarChar(100)
-  paid_at        DateTime      @db.Timestamptz()
-  recorded_by    String        @db.Uuid
-  note           String?
-  created_at     DateTime      @default(now()) @db.Timestamptz()
+model Charge {
+  id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bill_id              String?      @db.Uuid
+  bill_line_item_id    String?      @unique @db.Uuid
+  lease_id             String       @db.Uuid
+  type                 ChargeType
+  billing_mode         BillingMode
+  title                String       @db.VarChar(160)
+  description          String?      @db.VarChar(240)
+  service_period_start DateTime     @db.Date
+  service_period_end   DateTime     @db.Date
+  issue_date           DateTime     @db.Date
+  due_date             DateTime     @db.Date
+  amount               Decimal      @db.Decimal(10, 2)
+  status               ChargeStatus @default(unpaid)
+  created_at           DateTime     @default(now()) @db.Timestamptz()
+  voided_at            DateTime?    @db.Timestamptz()
 
-  bill     Bill @relation(fields: [bill_id], references: [id])
-  recorder User @relation("PaymentRecordedBy", fields: [recorded_by], references: [id])
+  bill         Bill?               @relation(fields: [bill_id], references: [id])
+  billLineItem BillLineItem?       @relation(fields: [bill_line_item_id], references: [id])
+  lease        Lease               @relation(fields: [lease_id], references: [id])
+  allocations  PaymentAllocation[]
+
+  @@index([bill_id])
+  @@index([lease_id])
+  @@index([status])
+  @@index([due_date])
+  @@map("charges")
+}
+
+model Payment {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bill_id          String        @db.Uuid
+  amount_paid      Decimal       @db.Decimal(10, 2)
+  payment_method   PaymentMethod
+  upi_ref          String?       @db.VarChar(100)
+  paid_at          DateTime      @db.Timestamptz()
+  recorded_by      String        @db.Uuid
+  status           PaymentStatus @default(confirmed)
+  verified_at      DateTime?     @db.Timestamptz()
+  verified_by      String?       @db.Uuid
+  rejection_reason String?
+  note             String?
+  created_at       DateTime      @default(now()) @db.Timestamptz()
+
+  bill        Bill                @relation(fields: [bill_id], references: [id])
+  recorder    User                @relation("PaymentRecordedBy", fields: [recorded_by], references: [id])
+  allocations PaymentAllocation[]
 
   @@index([bill_id])
   @@index([paid_at])
+  @@index([status])
   @@map("payments")
+}
+
+model PaymentAllocation {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payment_id String   @db.Uuid
+  charge_id  String   @db.Uuid
+  amount     Decimal  @db.Decimal(10, 2)
+  created_at DateTime @default(now()) @db.Timestamptz()
+
+  payment Payment @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  charge  Charge  @relation(fields: [charge_id], references: [id])
+
+  @@unique([payment_id, charge_id])
+  @@index([charge_id])
+  @@map("payment_allocations")
 }
 
 model MaintenanceRequest {

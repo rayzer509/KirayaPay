@@ -29,14 +29,15 @@ ALTER TABLE public.billing_cycles         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.meter_readings         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bills                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bill_line_items        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.charges                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_allocations    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.maintenance_requests   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notices                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages               ENABLE ROW LEVEL SECURITY;
 
 -- ─── users ───────────────────────────────────────────────────────────────────
--- Admins see all; tenants see only themselves
 CREATE POLICY "users_select" ON public.users
   FOR SELECT TO authenticated
   USING (id = auth.uid() OR public.is_admin());
@@ -50,7 +51,6 @@ CREATE POLICY "users_insert" ON public.users
   WITH CHECK (id = auth.uid() OR public.is_admin());
 
 -- ─── properties ──────────────────────────────────────────────────────────────
--- Admins only
 CREATE POLICY "properties_admin_all" ON public.properties
   FOR ALL TO authenticated
   USING (public.is_admin())
@@ -63,7 +63,6 @@ CREATE POLICY "property_rates_admin_all" ON public.property_rates
   WITH CHECK (public.is_admin());
 
 -- ─── units ───────────────────────────────────────────────────────────────────
--- Admins: full access; tenants: read their own unit
 CREATE POLICY "units_admin_all" ON public.units
   FOR ALL TO authenticated
   USING (public.is_admin())
@@ -158,13 +157,29 @@ CREATE POLICY "bill_line_items_tenant_select" ON public.bill_line_items
     )
   );
 
+-- ─── charges ─────────────────────────────────────────────────────────────────
+CREATE POLICY "charges_admin_all" ON public.charges
+  FOR ALL TO authenticated
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+
+CREATE POLICY "charges_tenant_select" ON public.charges
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.leases
+      WHERE leases.id = charges.lease_id
+        AND leases.tenant_id = auth.uid()
+        AND leases.deleted_at IS NULL
+    )
+  );
+
 -- ─── payments ────────────────────────────────────────────────────────────────
 CREATE POLICY "payments_admin_all" ON public.payments
   FOR ALL TO authenticated
   USING (public.is_admin())
   WITH CHECK (public.is_admin());
 
--- Tenants can see and create payments for their own bills
 CREATE POLICY "payments_tenant_select" ON public.payments
   FOR SELECT TO authenticated
   USING (
@@ -185,6 +200,39 @@ CREATE POLICY "payments_tenant_insert" ON public.payments
       JOIN public.leases ON leases.id = bills.lease_id
       WHERE bills.id = bill_id
         AND leases.tenant_id = auth.uid()
+    )
+  );
+
+-- ─── payment_allocations ─────────────────────────────────────────────────────
+CREATE POLICY "payment_allocations_admin_all" ON public.payment_allocations
+  FOR ALL TO authenticated
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+
+CREATE POLICY "payment_allocations_tenant_select" ON public.payment_allocations
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.charges
+      JOIN public.leases ON leases.id = charges.lease_id
+      WHERE charges.id = payment_allocations.charge_id
+        AND leases.tenant_id = auth.uid()
+        AND leases.deleted_at IS NULL
+    )
+  );
+
+CREATE POLICY "payment_allocations_tenant_insert" ON public.payment_allocations
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.payments
+      JOIN public.charges ON charges.id = payment_allocations.charge_id
+      JOIN public.leases ON leases.id = charges.lease_id
+      WHERE payments.id = payment_allocations.payment_id
+        AND payments.recorded_by = auth.uid()
+        AND payments.status = 'submitted'
+        AND leases.tenant_id = auth.uid()
+        AND leases.deleted_at IS NULL
     )
   );
 

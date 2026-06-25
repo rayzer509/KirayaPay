@@ -23,7 +23,9 @@ export function UPIPayment({ bill, onSuccess }: Props) {
 
   const upiId = bill.unit.property.upi_id;
   const upiQr = bill.unit.property.upi_qr_url;
-  const totalPaid = bill.payments.reduce((s, p) => s + Number(p.amount_paid), 0);
+  const totalPaid = bill.payments
+    .filter((p) => (p as any).status !== 'rejected')
+    .reduce((s, p) => s + Number(p.amount_paid), 0);
   const outstanding = Number(bill.total_amount) - totalPaid;
 
   const [payAmount, setPayAmount] = useState(String(outstanding));

@@ -199,7 +199,7 @@ export default function PaymentsPage() {
                     </thead>
                     <tbody>
                       {allPayments.map((payment) => {
-                        const isPending = payment.note?.includes('Pending');
+                        const isPending = payment.status === 'submitted';
                         return (
                           <tr key={payment.id} className="border-b border-border last:border-0 hover:bg-bg">
                             <td className="px-5 py-3.5 font-medium text-navy">{payment.bill.lease.tenant.full_name}</td>
