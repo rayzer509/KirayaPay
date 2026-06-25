@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
-import { CreditCard, CheckCircle2, ClipboardList } from 'lucide-react';
+import { CreditCard, CheckCircle2, ClipboardList, XCircle } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import toast from 'react-hot-toast';
@@ -20,6 +20,9 @@ export default function PaymentsPage() {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<'upi' | 'cash' | 'bank_transfer' | 'other'>('upi');
   const [utrRef, setUtrRef] = useState('');
+
+  const [rejectingPaymentId, setRejectingPaymentId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const { data: tenantSubmissions, refetch: refetchSubmissions } = trpc.payments.pendingVerification.useQuery();
   const { data: allPayments, refetch: refetchAll } = trpc.payments.list.useQuery({});
@@ -33,6 +36,18 @@ export default function PaymentsPage() {
       refetchAll();
     },
     onError: (err) => toast.error(err.message ?? 'Failed to confirm'),
+  });
+
+  const rejectPayment = trpc.payments.rejectPayment.useMutation({
+    onSuccess: () => {
+      toast.success('Payment rejected — tenant will need to resubmit');
+      setRejectingPaymentId(null);
+      setRejectionReason('');
+      refetchSubmissions();
+      pendingBills.refetch();
+      refetchAll();
+    },
+    onError: (err) => toast.error(err.message ?? 'Failed to reject'),
   });
 
   const markPaid = trpc.payments.markPaid.useMutation();
@@ -110,7 +125,7 @@ export default function PaymentsPage() {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
                           <div className="text-right">
                             <p className="money text-navy text-lg">
                               {formatCurrency(Number(payment.amount_paid))}
@@ -127,6 +142,14 @@ export default function PaymentsPage() {
                           >
                             <CheckCircle2 className="w-4 h-4" />
                             Confirm
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => { setRejectingPaymentId(payment.id); setRejectionReason(''); }}
+                          >
+                            <XCircle className="w-4 h-4 text-coral" />
+                            Reject
                           </Button>
                         </div>
                       </div>
@@ -199,7 +222,7 @@ export default function PaymentsPage() {
                     </thead>
                     <tbody>
                       {allPayments.map((payment) => {
-                        const isPending = payment.status === 'submitted';
+                        const s = payment.status;
                         return (
                           <tr key={payment.id} className="border-b border-border last:border-0 hover:bg-bg">
                             <td className="px-5 py-3.5 font-medium text-navy">{payment.bill.lease.tenant.full_name}</td>
@@ -208,10 +231,12 @@ export default function PaymentsPage() {
                             <td className="px-5 py-3.5 text-slate capitalize">{payment.payment_method}</td>
                             <td className="px-5 py-3.5 reading text-slate text-xs">{payment.upi_ref ?? '—'}</td>
                             <td className="px-5 py-3.5">
-                              {isPending ? (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Pending</span>
-                              ) : (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-sage-light text-sage">Confirmed</span>
+                              {s === 'submitted' && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Pending</span>}
+                              {s === 'confirmed' && <span className="text-xs px-2 py-0.5 rounded-full bg-sage-light text-sage">Confirmed</span>}
+                              {s === 'rejected' && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-coral/10 text-coral" title={payment.rejection_reason ?? ''}>
+                                  Rejected
+                                </span>
                               )}
                             </td>
                             <td className="px-5 py-3.5 text-slate text-xs">{formatDateTime(payment.paid_at)}</td>
@@ -228,6 +253,42 @@ export default function PaymentsPage() {
           </Tabs.Content>
         </Tabs.Root>
       </main>
+
+      <Modal
+        open={!!rejectingPaymentId}
+        onClose={() => { setRejectingPaymentId(null); setRejectionReason(''); }}
+        title="Reject Payment"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate">
+            The tenant will be notified that their payment was not verified and will need to resubmit.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-navy mb-1">Reason for rejection</label>
+            <textarea
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              placeholder="e.g. UTR not found in bank statement, amount mismatch…"
+              className="w-full px-3 py-2 rounded-lg border border-border text-sm resize-none h-24 focus:outline-none focus:ring-2 focus:ring-coral/30 focus:border-coral"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => { setRejectingPaymentId(null); setRejectionReason(''); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              className="border-coral text-coral hover:bg-coral/10"
+              disabled={!rejectionReason.trim()}
+              loading={rejectPayment.isLoading}
+              onClick={() => rejectPayment.mutate({ payment_id: rejectingPaymentId!, rejection_reason: rejectionReason.trim() })}
+            >
+              <XCircle className="w-4 h-4" />
+              Reject Payment
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={!!markingBillId} onClose={() => setMarkingBillId(null)} title="Record Payment">
         <div className="space-y-4">
