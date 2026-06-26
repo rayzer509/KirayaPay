@@ -23,16 +23,22 @@ export function UnitsTable({ units }: { units: UnitWithStatus[] }) {
               <tr className="border-b border-border">
                 <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Unit</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Tenant</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Rent Due</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Bill</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Monthly Rent</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Total Paid</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Outstanding</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Status</th>
               </tr>
             </thead>
             <tbody>
               {units.map((unit) => {
                 const lease = unit.leases[0];
-                const latestBill = lease?.bills[0];
-                const totalPaid = latestBill?.payments.reduce((s, p) => s + Number(p.amount_paid), 0) ?? 0;
+
+                // Ledger-accurate balance: total accrued charges minus confirmed payments
+                const totalCharged   = lease?.charges.reduce((s, c) => s + Number(c.amount), 0) ?? 0;
+                const totalConfirmed = lease?.payments.reduce((s, p) => s + Number(p.amount_paid), 0) ?? 0;
+                const outstanding    = Math.max(0, totalCharged - totalConfirmed);
+
+                const lastPayment    = lease?.payments[0]; // already sorted desc by paid_at
 
                 return (
                   <tr key={unit.id} className="border-b border-border last:border-0 hover:bg-bg transition">
@@ -60,19 +66,28 @@ export function UnitsTable({ units }: { units: UnitWithStatus[] }) {
                       )}
                     </td>
                     <td className="px-5 py-3.5">
-                      {latestBill ? (
+                      {lease ? (
                         <div>
-                          <span className="money text-navy">{formatCurrency(Number(latestBill.total_amount))}</span>
-                          {totalPaid > 0 && (
-                            <p className="text-xs text-slate">Paid: {formatCurrency(totalPaid)}</p>
+                          <span className="money text-sage">{formatCurrency(totalConfirmed)}</span>
+                          {lastPayment && (
+                            <p className="text-xs text-slate">Last: {formatDate(lastPayment.paid_at)}</p>
                           )}
                         </div>
                       ) : (
-                        <span className="text-slate text-xs">No bill</span>
+                        <span className="text-slate text-xs">—</span>
                       )}
                     </td>
                     <td className="px-5 py-3.5">
-                      <StatusPill status={latestBill?.status ?? unit.status} />
+                      {lease ? (
+                        <span className={`money font-semibold ${outstanding > 0 ? 'text-coral' : 'text-sage'}`}>
+                          {formatCurrency(outstanding)}
+                        </span>
+                      ) : (
+                        <span className="text-slate text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <StatusPill status={outstanding > 0 ? 'sent' : lease ? 'paid' : unit.status} />
                     </td>
                   </tr>
                 );

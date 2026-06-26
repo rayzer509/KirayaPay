@@ -2,26 +2,27 @@
 
 import { trpc } from '@/lib/trpc';
 import { StatusPill } from '@/components/ui/StatusPill';
-import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { UPIPayment } from '@/components/tenant/UPIPayment';
 import { CashPayment } from '@/components/tenant/CashPayment';
+import { TenantLedger } from '@/components/tenant/TenantLedger';
 import { downloadReceipt } from '@/lib/receipt';
 import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
-import Link from 'next/link';
-import { Download, History } from 'lucide-react';
+import { Download, History, BookOpen } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function TenantBillsPage() {
   const [payingBillId, setPayingBillId] = useState<string | null>(null);
 
   const { data: bills, isLoading, refetch } = trpc.billing.billsForTenant.useQuery({ status: 'all' });
-  const { data: me } = trpc.auth.me.useQuery();
-  const { data: historyData } = trpc.billing.paymentHistory.useQuery();
+  const { data: me }             = trpc.auth.me.useQuery();
+  const { data: historyData }    = trpc.billing.paymentHistory.useQuery();
+  const { data: activeLease }    = trpc.leases.myActiveLease.useQuery();
 
   const pendingBills = bills?.filter((b) => b.status === 'sent' || b.status === 'partial' || b.status === 'overdue') ?? [];
-  const paidBills = bills?.filter((b) => b.status === 'paid') ?? [];
+  const paidBills    = bills?.filter((b) => b.status === 'paid') ?? [];
 
   const payingBill = bills?.find((b) => b.id === payingBillId);
 
@@ -30,45 +31,82 @@ export default function TenantBillsPage() {
       {me && (
         <div className="mb-2">
           <h1 className="text-lg font-bold text-navy">Hi, {me.full_name.split(' ')[0]} 👋</h1>
-          <p className="text-sm text-slate">Here are your bills and payment status</p>
+          <p className="text-sm text-slate">Your account ledger and payment status</p>
         </div>
       )}
 
-      <Tabs.Root defaultValue="pending">
-        <Tabs.List className="flex gap-1 p-1 bg-slate-light rounded-lg w-fit mb-4">
-          <Tabs.Trigger value="pending" className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition">
-            Due ({pendingBills.length})
+      <Tabs.Root defaultValue="ledger">
+        <Tabs.List className="flex gap-1 p-1 bg-slate-light rounded-lg w-fit mb-4 flex-wrap">
+          <Tabs.Trigger
+            value="ledger"
+            className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition flex items-center gap-1"
+          >
+            <BookOpen className="w-3.5 h-3.5" /> Ledger
           </Tabs.Trigger>
-          <Tabs.Trigger value="paid" className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition">
-            Paid ({paidBills.length})
+          <Tabs.Trigger
+            value="pending"
+            className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition"
+          >
+            Bills Due ({pendingBills.length})
           </Tabs.Trigger>
-          <Tabs.Trigger value="history" className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition flex items-center gap-1">
+          <Tabs.Trigger
+            value="paid"
+            className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition"
+          >
+            Bills Paid ({paidBills.length})
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="history"
+            className="px-4 py-1.5 rounded-md text-sm font-medium text-slate data-[state=active]:bg-surface data-[state=active]:text-navy data-[state=active]:shadow-sm transition flex items-center gap-1"
+          >
             <History className="w-3.5 h-3.5" /> History
           </Tabs.Trigger>
         </Tabs.List>
 
+        {/* ── New Ledger tab ───────────────────────────────────────── */}
+        <Tabs.Content value="ledger">
+          {activeLease ? (
+            <TenantLedger
+              leaseId={activeLease.id}
+              upiId={activeLease.unit.property.upi_id}
+            />
+          ) : (
+            <div className="p-8 text-center">
+              <p className="text-2xl mb-2">📋</p>
+              <p className="font-semibold text-navy">No active lease found</p>
+              <p className="text-sm text-slate">Contact your landlord if you believe this is an error</p>
+            </div>
+          )}
+        </Tabs.Content>
+
+        {/* ── Legacy Bills Due tab ─────────────────────────────────── */}
         <Tabs.Content value="pending" className="space-y-3">
           {isLoading && <div className="h-32 rounded-xl bg-surface border border-border animate-pulse" />}
           {!isLoading && pendingBills.length === 0 && (
             <div className="p-8 text-center">
               <p className="text-2xl mb-2">✅</p>
-              <p className="font-semibold text-navy">You're all clear!</p>
-              <p className="text-sm text-slate">No pending bills</p>
+              <p className="font-semibold text-navy">No pending bills</p>
+              <p className="text-sm text-slate">Use the Ledger tab to see your outstanding charges</p>
             </div>
           )}
           {pendingBills.map((bill) => {
-            const totalPaid = bill.payments.reduce((s, p) => s + Number(p.amount_paid), 0);
-            const outstanding = Number(bill.total_amount) - totalPaid;
+            const confirmedPaid = bill.payments
+              .filter((p) => (p as any).status === 'confirmed')
+              .reduce((s, p) => s + Number(p.amount_paid), 0);
+            const outstanding = Number(bill.total_amount) - confirmedPaid;
             return (
               <Card key={bill.id}>
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <p className="font-semibold text-navy">{bill.unit.unit_number} · {bill.unit.property.name}</p>
-                    <p className="text-xs text-slate">{bill.cycle.cycle_month ? `${new Date(bill.cycle.cycle_month).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}` : ''}</p>
+                    <p className="text-xs text-slate">
+                      {bill.cycle.cycle_month
+                        ? new Date(bill.cycle.cycle_month).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+                        : ''}
+                    </p>
                   </div>
                   <StatusPill status={bill.status} />
                 </div>
-
                 <div className="space-y-1.5 mb-3">
                   {bill.line_items.map((item) => (
                     <div key={item.id} className="flex justify-between text-sm">
@@ -80,16 +118,14 @@ export default function TenantBillsPage() {
                     <span className="font-semibold text-navy">Total</span>
                     <span className="money font-bold text-navy">{formatCurrency(Number(bill.total_amount))}</span>
                   </div>
-                  {totalPaid > 0 && (
+                  {confirmedPaid > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-sage">Paid</span>
-                      <span className="money text-sage">{formatCurrency(totalPaid)}</span>
+                      <span className="money text-sage">{formatCurrency(confirmedPaid)}</span>
                     </div>
                   )}
                 </div>
-
                 <p className="text-xs text-slate mb-3">Due: {formatDate(bill.due_date)}</p>
-
                 <button
                   onClick={() => setPayingBillId(bill.id)}
                   className="w-full py-2.5 rounded-lg bg-saffron hover:bg-saffron/90 text-white font-semibold text-sm transition"
@@ -101,6 +137,7 @@ export default function TenantBillsPage() {
           })}
         </Tabs.Content>
 
+        {/* ── Legacy Bills Paid tab ────────────────────────────────── */}
         <Tabs.Content value="paid" className="space-y-3">
           {paidBills.map((bill) => {
             const lastPayment = bill.payments[bill.payments.length - 1];
@@ -109,7 +146,9 @@ export default function TenantBillsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-semibold text-navy">{bill.unit.unit_number} · {bill.unit.property.name}</p>
-                    <p className="text-xs text-slate">{new Date(bill.cycle.cycle_month).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}</p>
+                    <p className="text-xs text-slate">
+                      {new Date(bill.cycle.cycle_month).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                    </p>
                   </div>
                   <div className="text-right flex flex-col items-end gap-1">
                     <p className="money font-bold text-sage">{formatCurrency(Number(bill.total_amount))}</p>
@@ -117,17 +156,17 @@ export default function TenantBillsPage() {
                     {lastPayment && me && (
                       <button
                         onClick={() => downloadReceipt({
-                          paymentId: lastPayment.id,
-                          paidAt: lastPayment.paid_at,
-                          tenant: { full_name: me.full_name, phone: me.phone ?? me.email ?? '' },
-                          property: bill.unit.property,
-                          unit: bill.unit,
-                          cycleMonth: bill.cycle.cycle_month,
-                          lineItems: bill.line_items.map((li) => ({ description: li.description, amount: li.amount })),
-                          totalAmount: bill.total_amount,
-                          amountPaid: lastPayment.amount_paid,
+                          paymentId:     lastPayment.id,
+                          paidAt:        lastPayment.paid_at,
+                          tenant:        { full_name: me.full_name, phone: me.phone ?? me.email ?? '' },
+                          property:      bill.unit.property,
+                          unit:          bill.unit,
+                          cycleMonth:    bill.cycle.cycle_month,
+                          lineItems:     bill.line_items.map((li) => ({ description: li.description, amount: li.amount })),
+                          totalAmount:   bill.total_amount,
+                          amountPaid:    lastPayment.amount_paid,
                           paymentMethod: lastPayment.payment_method,
-                          upiRef: lastPayment.upi_ref,
+                          upiRef:        lastPayment.upi_ref,
                         })}
                         className="flex items-center gap-1 text-xs text-slate hover:text-navy transition mt-0.5"
                       >
@@ -140,8 +179,12 @@ export default function TenantBillsPage() {
               </Card>
             );
           })}
+          {paidBills.length === 0 && (
+            <p className="text-sm text-slate italic text-center py-8">No paid bills yet</p>
+          )}
         </Tabs.Content>
 
+        {/* ── History tab ─────────────────────────────────────────── */}
         <Tabs.Content value="history" className="space-y-3">
           {historyData && (
             <Card>
@@ -151,7 +194,9 @@ export default function TenantBillsPage() {
                   <p className="text-lg font-bold text-navy money">{formatCurrency(historyData.totalThisFY)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-slate">Apr {new Date(historyData.fyStart).getFullYear()} – Mar {new Date(historyData.fyStart).getFullYear() + 1}</p>
+                  <p className="text-xs text-slate">
+                    Apr {new Date(historyData.fyStart).getFullYear()} – Mar {new Date(historyData.fyStart).getFullYear() + 1}
+                  </p>
                 </div>
               </div>
             </Card>
@@ -168,12 +213,8 @@ export default function TenantBillsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-navy money">{formatCurrency(Number(payment.amount_paid))}</p>
-                  <p className="text-xs text-slate mt-0.5">
-                    {payment.bill.cycle?.cycle_month
-                      ? new Date(payment.bill.cycle.cycle_month).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
-                      : '—'}
-                    {' · '}
-                    <span className="capitalize">{payment.payment_method.replace('_', ' ')}</span>
+                  <p className="text-xs text-slate mt-0.5 capitalize">
+                    {payment.payment_method.replace('_', ' ')}
                     {payment.upi_ref && ` · ${payment.upi_ref}`}
                   </p>
                 </div>
@@ -184,7 +225,7 @@ export default function TenantBillsPage() {
         </Tabs.Content>
       </Tabs.Root>
 
-      {/* Payment Modal */}
+      {/* Legacy bill payment modal (for Bills Due tab) */}
       {payingBill && (
         <div className="fixed inset-0 bg-navy/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-surface rounded-2xl border border-border w-full max-w-sm">
@@ -192,7 +233,6 @@ export default function TenantBillsPage() {
               <h2 className="font-semibold text-navy">Pay Bill</h2>
               <button onClick={() => setPayingBillId(null)} className="text-slate hover:text-navy text-xl">×</button>
             </div>
-
             <Tabs.Root defaultValue="upi" className="p-5">
               <Tabs.List className="flex gap-1 p-1 bg-slate-light rounded-lg mb-4">
                 {['upi', 'cash'].map((tab) => (
@@ -205,19 +245,11 @@ export default function TenantBillsPage() {
                   </Tabs.Trigger>
                 ))}
               </Tabs.List>
-
               <Tabs.Content value="upi">
-                <UPIPayment
-                  bill={payingBill}
-                  onSuccess={() => { setPayingBillId(null); refetch(); }}
-                />
+                <UPIPayment bill={payingBill} onSuccess={() => { setPayingBillId(null); refetch(); }} />
               </Tabs.Content>
-
               <Tabs.Content value="cash">
-                <CashPayment
-                  bill={payingBill}
-                  onSuccess={() => { setPayingBillId(null); refetch(); }}
-                />
+                <CashPayment bill={payingBill} onSuccess={() => { setPayingBillId(null); refetch(); }} />
               </Tabs.Content>
             </Tabs.Root>
           </div>

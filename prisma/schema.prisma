@@ -35,7 +35,8 @@ enum LeaseStatus {
 enum BillingCycleStatus {
   open
   readings_complete
-  bills_generated
+  bills_generated   // legacy — kept so existing rows remain valid
+  charges_generated // used for all new cycles going forward
   closed
 }
 
@@ -116,6 +117,14 @@ enum DocumentEntityType {
   maintenance
 }
 
+enum AccountType {
+  asset
+  liability
+  equity
+  revenue
+  expense
+}
+
 // ─── Tables ─────────────────────────────────────────────────────────────────
 
 model User {
@@ -140,6 +149,7 @@ model User {
   documents          Document[]           @relation("DocumentUploadedBy")
   notices            Notice[]             @relation("NoticeCreatedBy")
   messages_sent      Message[]            @relation("MessageSender")
+  journal_entries    JournalEntry[]       @relation("JournalPostedBy")
 
   @@map("users")
 }
@@ -162,6 +172,8 @@ model Property {
   billing_cycles  BillingCycle[]
   lease_templates LeaseTemplate[]
   notices         Notice[]
+  accounts        Account[]
+  journal_entries JournalEntry[]
 
   @@index([owner_id])
   @@map("properties")
@@ -233,10 +245,10 @@ model Lease {
   deposit_refunded_at     DateTime? @db.Timestamptz()
 
   // Opening balance (pre-existing tenants)
-  opening_balance         Decimal?  @db.Decimal(10, 2)
-  opening_balance_note    String?   @db.VarChar(200)
-  opening_balance_paid_at DateTime? @db.Timestamptz()
-  opening_balance_paid_via String?  @db.VarChar(30)
+  opening_balance          Decimal?  @db.Decimal(10, 2)
+  opening_balance_note     String?   @db.VarChar(200)
+  opening_balance_paid_at  DateTime? @db.Timestamptz()
+  opening_balance_paid_via String?   @db.VarChar(30)
 
   // Police verification
   police_verification_status String    @default("pending") @db.VarChar(20)
@@ -251,6 +263,8 @@ model Lease {
   amendments LeaseAmendment[]
   bills      Bill[]
   charges    Charge[]
+  payments   Payment[]
+  accounts   Account[]
   messages   Message[]
 
   @@index([unit_id])
@@ -307,6 +321,7 @@ model BillingCycle {
   property       Property       @relation(fields: [property_id], references: [id])
   meter_readings MeterReading[]
   bills          Bill[]
+  charges        Charge[]
 
   @@unique([property_id, cycle_month])
   @@index([property_id])
@@ -385,6 +400,7 @@ model Charge {
   id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   bill_id              String?      @db.Uuid
   bill_line_item_id    String?      @unique @db.Uuid
+  cycle_id             String?      @db.Uuid // set for utility charges raised from a billing cycle
   lease_id             String       @db.Uuid
   type                 ChargeType
   billing_mode         BillingMode
@@ -401,10 +417,12 @@ model Charge {
 
   bill         Bill?               @relation(fields: [bill_id], references: [id])
   billLineItem BillLineItem?       @relation(fields: [bill_line_item_id], references: [id])
+  cycle        BillingCycle?       @relation(fields: [cycle_id], references: [id])
   lease        Lease               @relation(fields: [lease_id], references: [id])
   allocations  PaymentAllocation[]
 
   @@index([bill_id])
+  @@index([cycle_id])
   @@index([lease_id])
   @@index([status])
   @@index([due_date])
@@ -413,7 +431,8 @@ model Charge {
 
 model Payment {
   id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  bill_id          String        @db.Uuid
+  bill_id          String?       @db.Uuid // nullable — legacy link; new payments use lease_id only
+  lease_id         String        @db.Uuid // primary reference for all payments
   amount_paid      Decimal       @db.Decimal(10, 2)
   payment_method   PaymentMethod
   upi_ref          String?       @db.VarChar(100)
@@ -426,11 +445,13 @@ model Payment {
   note             String?
   created_at       DateTime      @default(now()) @db.Timestamptz()
 
-  bill        Bill                @relation(fields: [bill_id], references: [id])
+  bill        Bill?               @relation(fields: [bill_id], references: [id])
+  lease       Lease               @relation(fields: [lease_id], references: [id])
   recorder    User                @relation("PaymentRecordedBy", fields: [recorded_by], references: [id])
   allocations PaymentAllocation[]
 
   @@index([bill_id])
+  @@index([lease_id])
   @@index([paid_at])
   @@index([status])
   @@map("payments")
@@ -450,6 +471,67 @@ model PaymentAllocation {
   @@index([charge_id])
   @@map("payment_allocations")
 }
+
+// ─── Ledger ─────────────────────────────────────────────────────────────────
+
+model Account {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String      @db.Uuid
+  code        String      @db.VarChar(50)  // e.g. "1000", "AR-{leaseId}", "3000"
+  name        String      @db.VarChar(150)
+  type        AccountType
+  lease_id    String?     @db.Uuid // only set for per-tenant AR sub-accounts
+  is_active   Boolean     @default(true)
+  created_at  DateTime    @default(now()) @db.Timestamptz()
+
+  property      Property      @relation(fields: [property_id], references: [id])
+  lease         Lease?        @relation(fields: [lease_id], references: [id])
+  journal_lines JournalLine[]
+
+  @@unique([property_id, code])
+  @@index([property_id])
+  @@index([lease_id])
+  @@map("accounts")
+}
+
+model JournalEntry {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  property_id String   @db.Uuid
+  entry_date  DateTime @db.Date
+  description String   @db.VarChar(300)
+  ref_type    String   @db.VarChar(50) // charge_raised | payment_confirmed | deposit_collected | deposit_refunded | opening_balance | void_charge
+  ref_id      String   @db.Uuid        // polymorphic — ID of the triggering record, no FK constraint
+  posted_by   String?  @db.Uuid        // null for system-generated entries (cron)
+  created_at  DateTime @default(now()) @db.Timestamptz()
+
+  property Property      @relation(fields: [property_id], references: [id])
+  poster   User?         @relation("JournalPostedBy", fields: [posted_by], references: [id])
+  lines    JournalLine[]
+
+  @@index([property_id])
+  @@index([entry_date])
+  @@index([ref_type, ref_id])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entry_id    String   @db.Uuid
+  account_id  String   @db.Uuid
+  debit       Decimal  @default(0) @db.Decimal(12, 2)
+  credit      Decimal  @default(0) @db.Decimal(12, 2)
+  description String?  @db.VarChar(300)
+  created_at  DateTime @default(now()) @db.Timestamptz()
+
+  entry   JournalEntry @relation(fields: [entry_id], references: [id])
+  account Account      @relation(fields: [account_id], references: [id])
+
+  @@index([entry_id])
+  @@index([account_id])
+  @@map("journal_lines")
+}
+
+// ─── Other ──────────────────────────────────────────────────────────────────
 
 model MaintenanceRequest {
   id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

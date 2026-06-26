@@ -246,4 +246,12 @@ export const leasesRouter = router({
       },
     });
   }),
+
+  // Tenant: get own active lease with property details (for ledger view)
+  myActiveLease: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.lease.findFirst({
+      where:   { tenant_id: ctx.user!.id, status: 'active', deleted_at: null },
+      include: { unit: { include: { property: true } }, tenant: true },
+    });
+  }),
 });

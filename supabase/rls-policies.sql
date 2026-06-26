@@ -17,6 +17,47 @@ AS $$
   );
 $$;
 
+-- ─── Drop existing policies (makes this script idempotent / re-runnable) ─────
+DROP POLICY IF EXISTS "users_select"                        ON public.users;
+DROP POLICY IF EXISTS "users_update"                        ON public.users;
+DROP POLICY IF EXISTS "users_insert"                        ON public.users;
+DROP POLICY IF EXISTS "properties_admin_all"                ON public.properties;
+DROP POLICY IF EXISTS "property_rates_admin_all"            ON public.property_rates;
+DROP POLICY IF EXISTS "units_admin_all"                     ON public.units;
+DROP POLICY IF EXISTS "units_tenant_select"                 ON public.units;
+DROP POLICY IF EXISTS "leases_admin_all"                    ON public.leases;
+DROP POLICY IF EXISTS "leases_tenant_select"                ON public.leases;
+DROP POLICY IF EXISTS "lease_amendments_admin_all"          ON public.lease_amendments;
+DROP POLICY IF EXISTS "lease_amendments_tenant_select"      ON public.lease_amendments;
+DROP POLICY IF EXISTS "lease_templates_admin_all"           ON public.lease_templates;
+DROP POLICY IF EXISTS "billing_cycles_admin_all"            ON public.billing_cycles;
+DROP POLICY IF EXISTS "meter_readings_admin_all"            ON public.meter_readings;
+DROP POLICY IF EXISTS "bills_admin_all"                     ON public.bills;
+DROP POLICY IF EXISTS "bills_tenant_select"                 ON public.bills;
+DROP POLICY IF EXISTS "bill_line_items_admin_all"           ON public.bill_line_items;
+DROP POLICY IF EXISTS "bill_line_items_tenant_select"       ON public.bill_line_items;
+DROP POLICY IF EXISTS "charges_admin_all"                   ON public.charges;
+DROP POLICY IF EXISTS "charges_tenant_select"               ON public.charges;
+DROP POLICY IF EXISTS "payments_admin_all"                  ON public.payments;
+DROP POLICY IF EXISTS "payments_tenant_select"              ON public.payments;
+DROP POLICY IF EXISTS "payments_tenant_insert"              ON public.payments;
+DROP POLICY IF EXISTS "payment_allocations_admin_all"       ON public.payment_allocations;
+DROP POLICY IF EXISTS "payment_allocations_tenant_select"   ON public.payment_allocations;
+DROP POLICY IF EXISTS "payment_allocations_tenant_insert"   ON public.payment_allocations;
+DROP POLICY IF EXISTS "maintenance_admin_all"               ON public.maintenance_requests;
+DROP POLICY IF EXISTS "maintenance_tenant_select"           ON public.maintenance_requests;
+DROP POLICY IF EXISTS "maintenance_tenant_insert"           ON public.maintenance_requests;
+DROP POLICY IF EXISTS "documents_admin_all"                 ON public.documents;
+DROP POLICY IF EXISTS "documents_tenant_select"             ON public.documents;
+DROP POLICY IF EXISTS "notices_admin_all"                   ON public.notices;
+DROP POLICY IF EXISTS "notices_tenant_select"               ON public.notices;
+DROP POLICY IF EXISTS "messages_admin_all"                  ON public.messages;
+DROP POLICY IF EXISTS "messages_tenant_select"              ON public.messages;
+DROP POLICY IF EXISTS "messages_tenant_insert"              ON public.messages;
+DROP POLICY IF EXISTS "accounts_admin_all"                  ON public.accounts;
+DROP POLICY IF EXISTS "journal_entries_admin_all"           ON public.journal_entries;
+DROP POLICY IF EXISTS "journal_lines_admin_all"             ON public.journal_lines;
+
 -- ─── Enable RLS on all tables ────────────────────────────────────────────────
 ALTER TABLE public.users                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.properties             ENABLE ROW LEVEL SECURITY;
@@ -36,6 +77,9 @@ ALTER TABLE public.maintenance_requests   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notices                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.accounts               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.journal_entries        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.journal_lines          ENABLE ROW LEVEL SECURITY;
 
 -- ─── users ───────────────────────────────────────────────────────────────────
 CREATE POLICY "users_select" ON public.users
@@ -184,10 +228,10 @@ CREATE POLICY "payments_tenant_select" ON public.payments
   FOR SELECT TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM public.bills
-      JOIN public.leases ON leases.id = bills.lease_id
-      WHERE bills.id = payments.bill_id
+      SELECT 1 FROM public.leases
+      WHERE leases.id = payments.lease_id
         AND leases.tenant_id = auth.uid()
+        AND leases.deleted_at IS NULL
     )
   );
 
@@ -196,10 +240,10 @@ CREATE POLICY "payments_tenant_insert" ON public.payments
   WITH CHECK (
     recorded_by = auth.uid()
     AND EXISTS (
-      SELECT 1 FROM public.bills
-      JOIN public.leases ON leases.id = bills.lease_id
-      WHERE bills.id = bill_id
+      SELECT 1 FROM public.leases
+      WHERE leases.id = lease_id
         AND leases.tenant_id = auth.uid()
+        AND leases.deleted_at IS NULL
     )
   );
 
@@ -314,3 +358,25 @@ CREATE POLICY "messages_tenant_insert" ON public.messages
         AND leases.tenant_id = auth.uid()
     )
   );
+
+-- ─── accounts ────────────────────────────────────────────────────────────────
+-- Accounts are internal ledger state; only admins need direct access.
+-- Tenant-facing balance data is served via tRPC procedures (server-side).
+CREATE POLICY "accounts_admin_all" ON public.accounts
+  FOR ALL TO authenticated
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+
+-- ─── journal_entries ─────────────────────────────────────────────────────────
+-- Journal entries are internal accounting records; admin-only direct access.
+CREATE POLICY "journal_entries_admin_all" ON public.journal_entries
+  FOR ALL TO authenticated
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+
+-- ─── journal_lines ───────────────────────────────────────────────────────────
+-- Journal lines are internal accounting records; admin-only direct access.
+CREATE POLICY "journal_lines_admin_all" ON public.journal_lines
+  FOR ALL TO authenticated
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());

@@ -16,16 +16,18 @@ import { Select } from '@/components/ui/Select';
 import toast from 'react-hot-toast';
 
 export default function PaymentsPage() {
-  const [markingBillId, setMarkingBillId] = useState<string | null>(null);
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<'upi' | 'cash' | 'bank_transfer' | 'other'>('upi');
-  const [utrRef, setUtrRef] = useState('');
+  const [markingBillId, setMarkingBillId]   = useState<string | null>(null);
+  const [amount, setAmount]                 = useState('');
+  const [method, setMethod]                 = useState<'upi' | 'cash' | 'bank_transfer' | 'other'>('upi');
+  const [utrRef, setUtrRef]                 = useState('');
 
   const [rejectingPaymentId, setRejectingPaymentId] = useState<string | null>(null);
-  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectionReason, setRejectionReason]       = useState('');
 
-  const { data: tenantSubmissions, refetch: refetchSubmissions } = trpc.payments.pendingVerification.useQuery();
-  const { data: allPayments, refetch: refetchAll } = trpc.payments.list.useQuery({});
+  const { data: tenantSubmissions, refetch: refetchSubmissions } =
+    trpc.payments.pendingVerification.useQuery();
+  const { data: allPayments, refetch: refetchAll } =
+    trpc.payments.list.useQuery({});
   const pendingBills = trpc.billing.listBills.useQuery({ status: 'sent' });
 
   const confirmPayment = trpc.payments.confirmPayment.useMutation({
@@ -52,18 +54,18 @@ export default function PaymentsPage() {
 
   const markPaid = trpc.payments.markPaid.useMutation();
 
-  // Bills where the tenant already submitted a payment — don't show in manual section
-  const submittedBillIds = new Set(tenantSubmissions?.map((p) => p.bill_id) ?? []);
+  // Bills where the tenant already submitted a payment
+  const submittedBillIds = new Set(tenantSubmissions?.map((p) => p.bill_id).filter(Boolean) ?? []);
   const unsubmittedBills = pendingBills.data?.filter((b) => !submittedBillIds.has(b.id)) ?? [];
 
   async function handleMarkPaid() {
     if (!markingBillId || !amount) return;
     try {
       await markPaid.mutateAsync({
-        bill_id: markingBillId,
-        amount_paid: parseFloat(amount),
+        bill_id:        markingBillId,
+        amount_paid:    parseFloat(amount),
         payment_method: method,
-        upi_ref: utrRef || undefined,
+        upi_ref:        utrRef || undefined,
       });
       toast.success('Payment recorded');
       setMarkingBillId(null);
@@ -106,10 +108,10 @@ export default function PaymentsPage() {
                       <div className="flex items-start justify-between gap-4 flex-wrap">
                         <div className="space-y-1">
                           <p className="font-semibold text-navy">
-                            {payment.bill.lease.tenant.full_name}
+                            {payment.lease.tenant.full_name}
                           </p>
                           <p className="text-sm text-slate">
-                            {payment.bill.unit.unit_number} · {payment.bill.unit.property.name}
+                            {payment.lease.unit.unit_number} · {payment.lease.unit.property.name}
                           </p>
                           <div className="flex items-center gap-2 flex-wrap mt-1">
                             <span className="text-xs px-2 py-0.5 rounded-full bg-slate-light text-slate capitalize">
@@ -146,7 +148,10 @@ export default function PaymentsPage() {
                           <Button
                             size="sm"
                             variant="secondary"
-                            onClick={() => { setRejectingPaymentId(payment.id); setRejectionReason(''); }}
+                            onClick={() => {
+                              setRejectingPaymentId(payment.id);
+                              setRejectionReason('');
+                            }}
                           >
                             <XCircle className="w-4 h-4 text-coral" />
                             Reject
@@ -225,21 +230,40 @@ export default function PaymentsPage() {
                         const s = payment.status;
                         return (
                           <tr key={payment.id} className="border-b border-border last:border-0 hover:bg-bg">
-                            <td className="px-5 py-3.5 font-medium text-navy">{payment.bill.lease.tenant.full_name}</td>
-                            <td className="px-5 py-3.5 text-slate">{payment.bill.unit.unit_number}</td>
-                            <td className="px-5 py-3.5 money text-sage">{formatCurrency(Number(payment.amount_paid))}</td>
-                            <td className="px-5 py-3.5 text-slate capitalize">{payment.payment_method}</td>
-                            <td className="px-5 py-3.5 reading text-slate text-xs">{payment.upi_ref ?? '—'}</td>
+                            <td className="px-5 py-3.5 font-medium text-navy">
+                              {payment.lease.tenant.full_name}
+                            </td>
+                            <td className="px-5 py-3.5 text-slate">
+                              {payment.lease.unit.unit_number}
+                            </td>
+                            <td className="px-5 py-3.5 money text-sage">
+                              {formatCurrency(Number(payment.amount_paid))}
+                            </td>
+                            <td className="px-5 py-3.5 text-slate capitalize">
+                              {payment.payment_method}
+                            </td>
+                            <td className="px-5 py-3.5 reading text-slate text-xs">
+                              {payment.upi_ref ?? '—'}
+                            </td>
                             <td className="px-5 py-3.5">
-                              {s === 'submitted' && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Pending</span>}
-                              {s === 'confirmed' && <span className="text-xs px-2 py-0.5 rounded-full bg-sage-light text-sage">Confirmed</span>}
+                              {s === 'submitted' && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Pending</span>
+                              )}
+                              {s === 'confirmed' && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-sage-light text-sage">Confirmed</span>
+                              )}
                               {s === 'rejected' && (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-coral/10 text-coral" title={payment.rejection_reason ?? ''}>
+                                <span
+                                  className="text-xs px-2 py-0.5 rounded-full bg-coral/10 text-coral"
+                                  title={payment.rejection_reason ?? ''}
+                                >
                                   Rejected
                                 </span>
                               )}
                             </td>
-                            <td className="px-5 py-3.5 text-slate text-xs">{formatDateTime(payment.paid_at)}</td>
+                            <td className="px-5 py-3.5 text-slate text-xs">
+                              {formatDateTime(payment.paid_at)}
+                            </td>
                           </tr>
                         );
                       })}
@@ -254,6 +278,7 @@ export default function PaymentsPage() {
         </Tabs.Root>
       </main>
 
+      {/* Reject payment modal */}
       <Modal
         open={!!rejectingPaymentId}
         onClose={() => { setRejectingPaymentId(null); setRejectionReason(''); }}
@@ -281,7 +306,12 @@ export default function PaymentsPage() {
               className="border-coral text-coral hover:bg-coral/10"
               disabled={!rejectionReason.trim()}
               loading={rejectPayment.isLoading}
-              onClick={() => rejectPayment.mutate({ payment_id: rejectingPaymentId!, rejection_reason: rejectionReason.trim() })}
+              onClick={() =>
+                rejectPayment.mutate({
+                  payment_id:       rejectingPaymentId!,
+                  rejection_reason: rejectionReason.trim(),
+                })
+              }
             >
               <XCircle className="w-4 h-4" />
               Reject Payment
@@ -290,26 +320,40 @@ export default function PaymentsPage() {
         </div>
       </Modal>
 
+      {/* Record offline payment modal */}
       <Modal open={!!markingBillId} onClose={() => setMarkingBillId(null)} title="Record Payment">
         <div className="space-y-4">
-          <Input label="Amount Paid (₹)" type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Input
+            label="Amount Paid (₹)"
+            type="number"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
           <Select
             label="Payment Method"
             value={method}
             onValueChange={(v) => setMethod(v as typeof method)}
             options={[
-              { value: 'upi', label: 'UPI' },
-              { value: 'cash', label: 'Cash' },
+              { value: 'upi',           label: 'UPI' },
+              { value: 'cash',          label: 'Cash' },
               { value: 'bank_transfer', label: 'Bank Transfer' },
-              { value: 'other', label: 'Other' },
+              { value: 'other',         label: 'Other' },
             ]}
           />
           {method === 'upi' && (
-            <Input label="UTR / Transaction Reference" placeholder="12-digit UTR" value={utrRef} onChange={(e) => setUtrRef(e.target.value)} />
+            <Input
+              label="UTR / Transaction Reference"
+              placeholder="12-digit UTR"
+              value={utrRef}
+              onChange={(e) => setUtrRef(e.target.value)}
+            />
           )}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setMarkingBillId(null)}>Cancel</Button>
-            <Button variant="sage" onClick={handleMarkPaid} loading={markPaid.isLoading}>Confirm Payment</Button>
+            <Button variant="sage" onClick={handleMarkPaid} loading={markPaid.isLoading}>
+              Confirm Payment
+            </Button>
           </div>
         </div>
       </Modal>
