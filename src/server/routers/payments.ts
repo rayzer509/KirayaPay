@@ -77,7 +77,7 @@ async function getAdminPaymentOrThrow(ctx: Ctx, paymentId: string) {
   const payment = await ctx.prisma.payment.findUnique({
     where:   { id: paymentId },
     include: {
-      lease: { include: { unit: { include: { property: true } } } },
+      lease: { include: { unit: { include: { property: true } }, tenant: true } },
     },
   });
   if (!payment) throw new TRPCError({ code: 'NOT_FOUND' });
