@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -37,8 +38,16 @@ export async function middleware(request: NextRequest) {
   }
 
   if (authUser) {
-    // Use Supabase client (edge-compatible) instead of Prisma to fetch role
-    const { data: dbUser } = await supabase
+    // Use service-role client for role lookup — bypasses RLS for this internal
+    // operation. We already verified the user's identity via getUser() above;
+    // the session client's anon-key JWT may not forward correctly through the
+    // Edge runtime, causing auth.uid() to return null and RLS to block the row.
+    const adminSupabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } },
+    );
+    const { data: dbUser } = await adminSupabase
       .from('users')
       .select('role')
       .eq('id', authUser.id)
