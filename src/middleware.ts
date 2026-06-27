@@ -1,5 +1,4 @@
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -38,26 +37,15 @@ export async function middleware(request: NextRequest) {
   }
 
   if (authUser) {
-    // Use service-role client for role lookup — bypasses RLS for this internal
-    // operation. We already verified the user's identity via getUser() above;
-    // the session client's anon-key JWT may not forward correctly through the
-    // Edge runtime, causing auth.uid() to return null and RLS to block the row.
-    const adminSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } },
-    );
-    const { data: dbUser } = await adminSupabase
-      .from('users')
-      .select('role')
-      .eq('id', authUser.id)
-      .is('deleted_at', null)
-      .single();
-
-    const isTenant = dbUser?.role === 'tenant';
+    // Role is stored in app_metadata (set by the admin API in the seed / user
+    // creation flow). This avoids a database query and RLS complications in
+    // the Edge runtime — app_metadata is included in the verified JWT returned
+    // by getUser() and cannot be modified by regular users.
+    const role = authUser.app_metadata?.role as string | undefined;
+    const isTenant = role === 'tenant';
 
     if (pathname === '/login') {
-      if (!dbUser) return response; // no profile yet — let login page handle onboarding
+      if (!role) return response; // no profile yet — let login page handle onboarding
       return NextResponse.redirect(new URL(isTenant ? '/tenant' : '/dashboard', request.url));
     }
 

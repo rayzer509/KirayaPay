@@ -15,16 +15,29 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } },
 );
 
-async function getOrCreateAuthUser(email: string, password: string, fullName: string) {
+async function getOrCreateAuthUser(
+  email: string,
+  password: string,
+  fullName: string,
+  role: 'owner' | 'tenant',
+) {
   const { data: list } = await supabaseAdmin.auth.admin.listUsers();
   const existing = list?.users?.find((u) => u.email === email);
-  if (existing) return existing.id;
+
+  if (existing) {
+    // Sync app_metadata.role so middleware can read it from the JWT
+    await supabaseAdmin.auth.admin.updateUserById(existing.id, {
+      app_metadata: { role },
+    });
+    return existing.id;
+  }
 
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
     user_metadata: { full_name: fullName },
+    app_metadata:  { role },
   });
   if (error) throw new Error(`Failed to create auth user ${email}: ${error.message}`);
   return data.user.id;
@@ -63,6 +76,7 @@ async function main() {
     'naman.agarwal2397@gmail.com',
     'Test@1234',
     'Naman Agarwal',
+    'owner',
   );
   await prisma.user.upsert({
     where:  { id: landlordAuthId },
@@ -74,6 +88,7 @@ async function main() {
     'rahul.sharma@propease.test',
     'Tenant@1234',
     'Rahul Sharma',
+    'tenant',
   );
   await prisma.user.upsert({
     where:  { id: tenant1AuthId },
@@ -85,6 +100,7 @@ async function main() {
     'priya.mehta@propease.test',
     'Tenant@1234',
     'Priya Mehta',
+    'tenant',
   );
   await prisma.user.upsert({
     where:  { id: tenant2AuthId },
