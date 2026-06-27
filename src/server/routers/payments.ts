@@ -18,7 +18,7 @@ async function allocatePayment(
   const outstandingCharges = await prisma.charge.findMany({
     where: {
       lease_id:  leaseId,
-      status:    { in: ['unpaid', 'partial'] },
+      status:    { in: ['unpaid', 'partial', 'submitted'] },
       voided_at: null,
     },
     include: {

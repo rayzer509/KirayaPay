@@ -172,13 +172,15 @@ export function TenantLedger({ leaseId, upiId }: { leaseId: string; upiId?: stri
   const { data: charges, refetch } = trpc.billing.myCharges.useQuery();
   const { data: historyData }      = trpc.billing.paymentHistory.useQuery();
 
-  if (!charges) return <div className="h-32 rounded-xl bg-surface border border-border animate-pulse" />;
+  if (!charges || !historyData) return <div className="h-32 rounded-xl bg-surface border border-border animate-pulse" />;
 
   const now     = new Date();
   const ledger  = charges.map((c) => ({ ...c, ...chargeLedger(c, now) }));
-  const outstanding = ledger
-    .filter((c) => c.status !== 'paid' && c.status !== 'void')
-    .reduce((s, c) => s + c.balance, 0);
+  // Use payment-based outstanding (consistent with landlord dashboard):
+  // total charged (non-void) minus total confirmed payments received.
+  const totalCharged   = ledger.reduce((s, c) => s + c.amount, 0);
+  const totalConfirmed = historyData.payments.reduce((s, p) => s + Number(p.amount_paid), 0);
+  const outstanding    = Math.max(0, totalCharged - totalConfirmed);
 
   const pendingCharges = ledger.filter((c) => ['unpaid', 'partial', 'overdue', 'submitted'].includes(c.status));
   const paidCharges    = ledger.filter((c) => c.status === 'paid');

@@ -463,6 +463,22 @@ export const billingRouter = router({
     });
   }),
 
+  leaseStatement: adminProcedure
+    .input(z.object({ lease_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [charges, payments] = await Promise.all([
+        ctx.prisma.charge.findMany({
+          where:   { lease_id: input.lease_id, voided_at: null },
+          orderBy: [{ due_date: 'asc' }, { created_at: 'asc' }],
+        }),
+        ctx.prisma.payment.findMany({
+          where:   { lease_id: input.lease_id, status: 'confirmed' },
+          orderBy: { paid_at: 'asc' },
+        }),
+      ]);
+      return { charges, payments };
+    }),
+
   // ─── Legacy procedures (kept for backward compat) ────────────────────────
 
   // Deprecated — use generateCharges instead. Kept so old billing-cycle UI

@@ -16,7 +16,8 @@ import {
   User, Phone, Mail, Home, Zap, Droplets, Calendar,
   ChevronDown, ChevronUp, Download, ArrowLeft, Wrench,
   FileText, AlertCircle, UserX, MailCheck, ShieldCheck,
-  BadgeIndianRupee, CreditCard, FolderOpen, ExternalLink
+  BadgeIndianRupee, CreditCard, FolderOpen, ExternalLink,
+  BookOpen,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -31,6 +32,11 @@ export default function TenantDetailPage() {
   const { data: tenant, isLoading } = trpc.tenants.get.useQuery({ id: params.id });
   const { data: bills } = trpc.billing.listBills.useQuery({ tenant_id: params.id, status: 'all' });
   const { data: maintenance } = trpc.maintenance.list.useQuery({ status: 'all' });
+  const activeLeasePlaceholder = tenant?.leases?.find((l) => l.status === 'active');
+  const { data: statement } = trpc.billing.leaseStatement.useQuery(
+    { lease_id: activeLeasePlaceholder?.id ?? '' },
+    { enabled: !!activeLeasePlaceholder?.id },
+  );
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showPoliceModal, setShowPoliceModal] = useState(false);
   const [showOpeningBalModal, setShowOpeningBalModal] = useState(false);
@@ -172,6 +178,7 @@ export default function TenantDetailPage() {
           <Tabs.List className="flex gap-1 p-1 bg-slate-light rounded-lg w-fit mb-6">
             {[
               { value: 'lease', label: 'Lease' },
+              { value: 'ledger', label: 'Ledger' },
               { value: 'bills', label: `Bills${bills ? ` (${bills.length})` : ''}` },
               { value: 'maintenance', label: `Maintenance${tenantMaintenance ? ` (${tenantMaintenance.length})` : ''}` },
               { value: 'documents', label: `Documents${tenant.documents ? ` (${tenant.documents.length})` : ''}` },
@@ -393,6 +400,100 @@ export default function TenantDetailPage() {
                 )}
               </div>
             )}
+          </Tabs.Content>
+
+          {/* ── Ledger tab ─────────────────────────────────────────────────── */}
+          <Tabs.Content value="ledger">
+            {!activeLease ? (
+              <EmptyState icon={BookOpen} title="No active lease" description="Ledger is only available for tenants with an active lease." />
+            ) : (() => {
+              // Build statement rows
+              const stRows = (() => {
+                if (!statement) return null;
+                const chargeEntries = statement.charges.map((c: any) => ({
+                  date:        new Date(c.issue_date ?? c.created_at),
+                  description: c.title,
+                  debit:       Number(c.amount),
+                  credit:      0,
+                }));
+                const paymentEntries = statement.payments.map((p: any) => ({
+                  date:        new Date(p.paid_at),
+                  description: `Payment · ${p.payment_method.replace(/_/g, ' ')}${p.upi_ref ? ` · UTR ${p.upi_ref}` : ''}`,
+                  debit:       0,
+                  credit:      Number(p.amount_paid),
+                }));
+                const all = [...chargeEntries, ...paymentEntries].sort((a, b) => a.date.getTime() - b.date.getTime());
+                let balance = 0;
+                return all.map((e) => {
+                  balance = Math.round((balance + e.debit - e.credit) * 100) / 100;
+                  return { ...e, balance: Math.max(0, balance) };
+                });
+              })();
+
+              const currentBalance = stRows ? stRows[stRows.length - 1]?.balance ?? 0 : 0;
+
+              return (
+                <div className="space-y-4">
+                  {/* Summary */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <Card>
+                      <p className="text-xs text-slate uppercase tracking-wide mb-1">Total Charged</p>
+                      <p className="text-lg font-bold money text-navy">
+                        {formatCurrency(statement?.charges.reduce((s: number, c: any) => s + Number(c.amount), 0) ?? 0)}
+                      </p>
+                    </Card>
+                    <Card>
+                      <p className="text-xs text-slate uppercase tracking-wide mb-1">Total Paid</p>
+                      <p className="text-lg font-bold money text-sage">
+                        {formatCurrency(statement?.payments.reduce((s: number, p: any) => s + Number(p.amount_paid), 0) ?? 0)}
+                      </p>
+                    </Card>
+                    <Card>
+                      <p className="text-xs text-slate uppercase tracking-wide mb-1">Outstanding</p>
+                      <p className={`text-lg font-bold money ${currentBalance > 0 ? 'text-coral' : 'text-sage'}`}>
+                        {formatCurrency(currentBalance)}
+                      </p>
+                    </Card>
+                  </div>
+
+                  {/* Statement table */}
+                  {stRows === null ? (
+                    <div className="h-40 rounded-xl bg-surface border border-border animate-pulse" />
+                  ) : stRows.length === 0 ? (
+                    <EmptyState icon={BookOpen} title="No transactions" description="No charges or payments on record." />
+                  ) : (
+                    <Card padding="none">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left px-4 py-3 text-xs font-semibold text-slate uppercase tracking-wide whitespace-nowrap">Date</th>
+                              <th className="text-left px-4 py-3 text-xs font-semibold text-slate uppercase tracking-wide">Description</th>
+                              <th className="text-right px-4 py-3 text-xs font-semibold text-coral uppercase tracking-wide whitespace-nowrap">Charges</th>
+                              <th className="text-right px-4 py-3 text-xs font-semibold text-sage uppercase tracking-wide whitespace-nowrap">Payments</th>
+                              <th className="text-right px-4 py-3 text-xs font-semibold text-slate uppercase tracking-wide whitespace-nowrap">Balance</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stRows.map((row, i) => (
+                              <tr key={i} className="border-b border-border last:border-0 hover:bg-bg transition">
+                                <td className="px-4 py-3 text-slate whitespace-nowrap">{format(row.date, 'dd MMM yyyy')}</td>
+                                <td className="px-4 py-3 text-navy">{row.description}</td>
+                                <td className="px-4 py-3 text-right money text-coral">{row.debit > 0 ? formatCurrency(row.debit) : <span className="text-slate">—</span>}</td>
+                                <td className="px-4 py-3 text-right money text-sage">{row.credit > 0 ? formatCurrency(row.credit) : <span className="text-slate">—</span>}</td>
+                                <td className={`px-4 py-3 text-right money font-semibold ${row.balance > 0 ? 'text-coral' : 'text-sage'}`}>
+                                  {formatCurrency(row.balance)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+                  )}
+                </div>
+              );
+            })()}
           </Tabs.Content>
 
           {/* ── Bills tab ──────────────────────────────────────────────────── */}
