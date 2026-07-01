@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { router, adminProcedure, protectedProcedure } from '../trpc';
+import { TRPCError } from '@trpc/server';
 
 export const noticesRouter = router({
   list: protectedProcedure
@@ -10,6 +11,7 @@ export const noticesRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      const isTenant = ctx.user!.role === 'tenant';
       return ctx.prisma.notice.findMany({
         where: {
           deleted_at: null,
@@ -17,6 +19,9 @@ export const noticesRouter = router({
           ...(input.unit_id
             ? { OR: [{ unit_id: input.unit_id }, { unit_id: null }] }
             : {}),
+          ...(isTenant
+            ? { property: { units: { some: { leases: { some: { tenant_id: ctx.user!.id, status: 'active', deleted_at: null } } } } } }
+            : { property: { owner_id: ctx.user!.id } }),
         },
         include: { creator: { select: { full_name: true } } },
         orderBy: { sent_at: 'desc' },
@@ -35,6 +40,10 @@ export const noticesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const property = await ctx.prisma.property.findFirst({
+        where: { id: input.property_id, owner_id: ctx.user!.id },
+      });
+      if (!property) throw new TRPCError({ code: 'NOT_FOUND' });
       return ctx.prisma.notice.create({
         data: {
           ...input,
@@ -47,6 +56,10 @@ export const noticesRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.notice.findFirst({
+        where: { id: input.id, property: { owner_id: ctx.user!.id } },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
       return ctx.prisma.notice.update({
         where: { id: input.id },
         data: { deleted_at: new Date() },

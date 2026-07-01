@@ -4,6 +4,18 @@ import { TRPCError } from '@trpc/server';
 import { createSupabaseAdminClient } from '@/lib/supabase-admin';
 import { generatePassword, sendTenantCredentials, sendTenantPasswordReset } from '@/lib/email';
 
+// Throws NOT_FOUND unless the tenant has at least one lease on a property owned by ctx.user.
+async function assertOwnsTenant(ctx: { prisma: any; user: { id: string } | null }, tenantId: string) {
+  const lease = await ctx.prisma.lease.findFirst({
+    where: {
+      tenant_id: tenantId,
+      deleted_at: null,
+      unit: { property: { owner_id: ctx.user!.id } },
+    },
+  });
+  if (!lease) throw new TRPCError({ code: 'NOT_FOUND', message: 'Tenant not found' });
+}
+
 export const tenantsRouter = router({
   list: adminProcedure
     .input(
@@ -13,19 +25,23 @@ export const tenantsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      const ownerScope = { unit: { property: { owner_id: ctx.user!.id } } };
       return ctx.prisma.user.findMany({
         where: {
           role: 'tenant',
           deleted_at: null,
-          ...(input.property_id
-            ? { leases: { some: { deleted_at: null, unit: { property_id: input.property_id } } } }
-            : input.status === 'active'
-            ? { leases: { some: { status: 'active', deleted_at: null } } }
-            : {}),
+          leases: {
+            some: {
+              deleted_at: null,
+              ...ownerScope,
+              ...(input.property_id ? { unit: { property_id: input.property_id } } : {}),
+              ...(input.status === 'active' && !input.property_id ? { status: 'active' } : {}),
+            },
+          },
         },
         include: {
           leases: {
-            where: { deleted_at: null },
+            where: { deleted_at: null, ...ownerScope },
             include: {
               unit: { include: { property: true } },
             },
@@ -39,11 +55,28 @@ export const tenantsRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const ownerScope =
+        ctx.user!.role === 'tenant'
+          ? {}
+          : { unit: { property: { owner_id: ctx.user!.id } } };
+
+      // Tenants may only fetch their own record.
+      if (ctx.user!.role === 'tenant' && input.id !== ctx.user!.id) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
       const tenant = await ctx.prisma.user.findFirst({
-        where: { id: input.id, role: 'tenant', deleted_at: null },
+        where: {
+          id: input.id,
+          role: 'tenant',
+          deleted_at: null,
+          ...(ctx.user!.role === 'tenant'
+            ? {}
+            : { leases: { some: { deleted_at: null, ...ownerScope } } }),
+        },
         include: {
           leases: {
-            where: { deleted_at: null },
+            where: { deleted_at: null, ...ownerScope },
             include: {
               unit: { include: { property: true } },
               amendments: { orderBy: { created_at: 'desc' } },
@@ -124,12 +157,14 @@ export const tenantsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      await assertOwnsTenant(ctx, id);
       return ctx.prisma.user.update({ where: { id }, data });
     }),
 
   resendInvite: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsTenant(ctx, input.id);
       const tenant = await ctx.prisma.user.findFirst({
         where: { id: input.id, role: 'tenant', deleted_at: null },
       });
@@ -162,8 +197,15 @@ export const tenantsRouter = router({
   offboard: adminProcedure
     .input(z.object({ id: z.string().uuid(), note: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsTenant(ctx, input.id);
+      // Only terminate leases on this landlord's properties — a tenant could
+      // theoretically have an active lease with another landlord too.
       await ctx.prisma.lease.updateMany({
-        where: { tenant_id: input.id, status: 'active' },
+        where: {
+          tenant_id: input.id,
+          status: 'active',
+          unit: { property: { owner_id: ctx.user!.id } },
+        },
         data: { status: 'terminated', deleted_at: new Date() },
       });
       return ctx.prisma.user.update({

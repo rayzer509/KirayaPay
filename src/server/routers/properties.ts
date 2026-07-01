@@ -48,8 +48,15 @@ export const propertiesRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const isTenant = ctx.user!.role === 'tenant';
       const property = await ctx.prisma.property.findFirst({
-        where: { id: input.id, deleted_at: null },
+        where: {
+          id: input.id,
+          deleted_at: null,
+          ...(isTenant
+            ? { units: { some: { leases: { some: { tenant_id: ctx.user!.id, status: 'active', deleted_at: null } } } } }
+            : { owner_id: ctx.user!.id }),
+        },
         include: {
           units: {
             where: { deleted_at: null },
@@ -78,12 +85,16 @@ export const propertiesRouter = router({
     .input(propertyInput.extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      const existing = await ctx.prisma.property.findFirst({ where: { id, owner_id: ctx.user!.id } });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
       return ctx.prisma.property.update({ where: { id }, data });
     }),
 
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.property.findFirst({ where: { id: input.id, owner_id: ctx.user!.id } });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
       return ctx.prisma.property.update({
         where: { id: input.id },
         data: { deleted_at: new Date() },
@@ -91,6 +102,8 @@ export const propertiesRouter = router({
     }),
 
   setRate: adminProcedure.input(rateInput).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.property.findFirst({ where: { id: input.property_id, owner_id: ctx.user!.id } });
+    if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
     return ctx.prisma.propertyRate.create({
       data: {
         property_id: input.property_id,

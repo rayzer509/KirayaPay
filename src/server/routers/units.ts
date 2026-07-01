@@ -10,10 +10,19 @@ const unitInput = z.object({
   status: z.enum(['vacant', 'occupied']),
 });
 
+// Throws NOT_FOUND/FORBIDDEN unless the property belongs to ctx.user (owner role).
+async function assertOwnsProperty(ctx: { prisma: any; user: { id: string; role: string } | null }, propertyId: string) {
+  if (ctx.user!.role === 'tenant') return;
+  const property = await ctx.prisma.property.findFirst({
+    where: { id: propertyId, owner_id: ctx.user!.id },
+  });
+  if (!property) throw new TRPCError({ code: 'NOT_FOUND', message: 'Property not found' });
+}
+
 export const unitsRouter = router({
   listAll: adminProcedure.query(async ({ ctx }) => {
     return ctx.prisma.unit.findMany({
-      where: { deleted_at: null },
+      where: { deleted_at: null, property: { owner_id: ctx.user!.id } },
       include: {
         property: true,
         leases: {
@@ -28,6 +37,7 @@ export const unitsRouter = router({
   list: protectedProcedure
     .input(z.object({ property_id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await assertOwnsProperty(ctx, input.property_id);
       return ctx.prisma.unit.findMany({
         where: { property_id: input.property_id, deleted_at: null },
         include: {
@@ -43,8 +53,15 @@ export const unitsRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const isTenant = ctx.user!.role === 'tenant';
       const unit = await ctx.prisma.unit.findFirst({
-        where: { id: input.id, deleted_at: null },
+        where: {
+          id: input.id,
+          deleted_at: null,
+          ...(isTenant
+            ? { leases: { some: { tenant_id: ctx.user!.id, deleted_at: null } } }
+            : { property: { owner_id: ctx.user!.id } }),
+        },
         include: {
           property: true,
           leases: {
@@ -63,6 +80,7 @@ export const unitsRouter = router({
     }),
 
   create: adminProcedure.input(unitInput).mutation(async ({ ctx, input }) => {
+    await assertOwnsProperty(ctx, input.property_id);
     return ctx.prisma.unit.create({ data: input });
   }),
 
@@ -70,12 +88,18 @@ export const unitsRouter = router({
     .input(unitInput.partial().extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      const unit = await ctx.prisma.unit.findUnique({ where: { id } });
+      if (!unit) throw new TRPCError({ code: 'NOT_FOUND' });
+      await assertOwnsProperty(ctx, unit.property_id);
       return ctx.prisma.unit.update({ where: { id }, data });
     }),
 
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const unit = await ctx.prisma.unit.findUnique({ where: { id: input.id } });
+      if (!unit) throw new TRPCError({ code: 'NOT_FOUND' });
+      await assertOwnsProperty(ctx, unit.property_id);
       return ctx.prisma.unit.update({
         where: { id: input.id },
         data: { deleted_at: new Date() },

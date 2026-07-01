@@ -17,11 +17,15 @@ export const maintenanceRouter = router({
         where: {
           deleted_at: null,
           ...(input.status !== 'all' ? { status: input.status } : {}),
-          ...(isTenant ? { raised_by: ctx.user!.id } : {}),
           ...(input.unit_id ? { unit_id: input.unit_id } : {}),
-          ...(input.property_id
-            ? { unit: { property_id: input.property_id } }
-            : {}),
+          ...(isTenant
+            ? { raised_by: ctx.user!.id }
+            : {
+                unit: {
+                  ...(input.property_id ? { property_id: input.property_id } : {}),
+                  property: { owner_id: ctx.user!.id },
+                },
+              }),
         },
         include: {
           unit: { include: { property: true } },
@@ -34,8 +38,15 @@ export const maintenanceRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const isTenant = ctx.user!.role === 'tenant';
       const req = await ctx.prisma.maintenanceRequest.findFirst({
-        where: { id: input.id, deleted_at: null },
+        where: {
+          id: input.id,
+          deleted_at: null,
+          ...(isTenant
+            ? { raised_by: ctx.user!.id }
+            : { unit: { property: { owner_id: ctx.user!.id } } }),
+        },
         include: {
           unit: { include: { property: true } },
           raiser: { select: { full_name: true, phone: true } },
@@ -54,6 +65,10 @@ export const maintenanceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const unit = await ctx.prisma.unit.findFirst({
+        where: { id: input.unit_id, leases: { some: { tenant_id: ctx.user!.id, status: 'active', deleted_at: null } } },
+      });
+      if (!unit) throw new TRPCError({ code: 'FORBIDDEN', message: 'No active lease on this unit' });
       return ctx.prisma.maintenanceRequest.create({
         data: {
           ...input,
@@ -76,6 +91,10 @@ export const maintenanceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      const existing = await ctx.prisma.maintenanceRequest.findFirst({
+        where: { id, unit: { property: { owner_id: ctx.user!.id } } },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
       const resolved_at =
         data.status === 'resolved' || data.status === 'closed' ? new Date() : undefined;
       return ctx.prisma.maintenanceRequest.update({
@@ -87,6 +106,10 @@ export const maintenanceRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.maintenanceRequest.findFirst({
+        where: { id: input.id, unit: { property: { owner_id: ctx.user!.id } } },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
       return ctx.prisma.maintenanceRequest.update({
         where: { id: input.id },
         data: { deleted_at: new Date() },

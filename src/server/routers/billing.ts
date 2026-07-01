@@ -60,7 +60,7 @@ export const billingRouter = router({
       return ctx.prisma.billingCycle.findMany({
         where: {
           property_id: input.property_id,
-          ...(ctx.user!.role === 'owner' ? { property: { owner_id: ctx.user!.id } } : {}),
+          property: { owner_id: ctx.user!.id },
         },
         include: {
           meter_readings: true,
@@ -98,7 +98,7 @@ export const billingRouter = router({
         },
       });
       if (!cycle) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (ctx.user!.role === 'owner' && cycle.property.owner_id !== ctx.user!.id) {
+      if (cycle.property.owner_id !== ctx.user!.id) {
         throw new TRPCError({ code: 'NOT_FOUND' });
       }
       return cycle;
@@ -191,7 +191,7 @@ export const billingRouter = router({
         },
       });
       if (!cycle) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (ctx.user!.role === 'owner' && cycle.property.owner_id !== ctx.user!.id) {
+      if (cycle.property.owner_id !== ctx.user!.id) {
         throw new TRPCError({ code: 'NOT_FOUND' });
       }
       if (cycle.meter_readings.length === 0) {
@@ -329,7 +329,7 @@ export const billingRouter = router({
         include: { unit: { include: { property: true } }, tenant: true },
       });
       if (!lease) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (ctx.user!.role === 'owner' && lease.unit.property.owner_id !== ctx.user!.id) {
+      if (lease.unit.property.owner_id !== ctx.user!.id) {
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
@@ -384,7 +384,7 @@ export const billingRouter = router({
         },
       });
       if (!charge) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (ctx.user!.role === 'owner' && charge.lease.unit.property.owner_id !== ctx.user!.id) {
+      if (charge.lease.unit.property.owner_id !== ctx.user!.id) {
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
       if (charge.status === 'void') {
@@ -431,12 +431,14 @@ export const billingRouter = router({
     .query(async ({ ctx, input }) => {
       return ctx.prisma.charge.findMany({
         where: {
-          ...(input.lease_id    ? { lease_id: input.lease_id } : {}),
-          ...(input.property_id ? { lease: { unit: { property_id: input.property_id } } } : {}),
+          ...(input.lease_id ? { lease_id: input.lease_id } : {}),
           ...(input.status !== 'all' ? { status: input.status } : { status: { not: 'void' } }),
-          ...(ctx.user!.role === 'owner'
-            ? { lease: { unit: { property: { owner_id: ctx.user!.id } } } }
-            : {}),
+          lease: {
+            unit: {
+              ...(input.property_id ? { property_id: input.property_id } : {}),
+              property: { owner_id: ctx.user!.id },
+            },
+          },
         },
         include: {
           lease:       { include: { tenant: true, unit: { include: { property: true } } } },
@@ -466,6 +468,11 @@ export const billingRouter = router({
   leaseStatement: adminProcedure
     .input(z.object({ lease_id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const lease = await ctx.prisma.lease.findFirst({
+        where: { id: input.lease_id, unit: { property: { owner_id: ctx.user!.id } } },
+      });
+      if (!lease) throw new TRPCError({ code: 'NOT_FOUND' });
+
       const [charges, payments] = await Promise.all([
         ctx.prisma.charge.findMany({
           where:   { lease_id: input.lease_id, voided_at: null },
@@ -494,6 +501,7 @@ export const billingRouter = router({
         },
       });
       if (!cycle) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (cycle.property.owner_id !== ctx.user!.id) throw new TRPCError({ code: 'NOT_FOUND' });
 
       const activeRate = await ctx.prisma.propertyRate.findFirst({
         where:   { property_id: cycle.property_id, effective_from: { lte: cycle.cycle_month } },
@@ -574,8 +582,12 @@ export const billingRouter = router({
   voidBill: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const bill = await ctx.prisma.bill.findUnique({ where: { id: input.id } });
+      const bill = await ctx.prisma.bill.findUnique({
+        where: { id: input.id },
+        include: { unit: { include: { property: true } } },
+      });
       if (!bill) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (bill.unit.property.owner_id !== ctx.user!.id) throw new TRPCError({ code: 'NOT_FOUND' });
       if (bill.status === 'paid') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot void a fully paid bill' });
       }
@@ -648,10 +660,9 @@ export const billingRouter = router({
         },
       });
       if (!bill) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (ctx.user!.role === 'tenant' && bill.lease.tenant_id !== ctx.user!.id) {
-        throw new TRPCError({ code: 'NOT_FOUND' });
-      }
-      if (ctx.user!.role === 'owner' && bill.unit.property.owner_id !== ctx.user!.id) {
+      if (ctx.user!.role === 'tenant') {
+        if (bill.lease.tenant_id !== ctx.user!.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      } else if (bill.unit.property.owner_id !== ctx.user!.id) {
         throw new TRPCError({ code: 'NOT_FOUND' });
       }
       return bill;
@@ -669,11 +680,11 @@ export const billingRouter = router({
         where: {
           ...(input.status !== 'all' ? { status: input.status } : {}),
           ...(input.cycle_id    ? { cycle_id: input.cycle_id } : {}),
-          ...(input.property_id ? { unit: { property_id: input.property_id } } : {}),
           ...(input.tenant_id   ? { lease: { tenant_id: input.tenant_id } } : {}),
-          ...(ctx.user!.role === 'owner'
-            ? { unit: { property: { owner_id: ctx.user!.id } } }
-            : {}),
+          unit: {
+            ...(input.property_id ? { property_id: input.property_id } : {}),
+            property: { owner_id: ctx.user!.id },
+          },
         },
         include: {
           line_items: { orderBy: { sort_order: 'asc' } },

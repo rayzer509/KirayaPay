@@ -3,10 +3,17 @@ import { router, adminProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { getDefaultTemplate } from '@/lib/defaultTemplates';
 
+// Throws NOT_FOUND unless the property belongs to ctx.user.
+async function assertOwnsProperty(ctx: { prisma: any; user: { id: string } | null }, propertyId: string) {
+  const property = await ctx.prisma.property.findFirst({ where: { id: propertyId, owner_id: ctx.user!.id } });
+  if (!property) throw new TRPCError({ code: 'NOT_FOUND', message: 'Property not found' });
+}
+
 export const templatesRouter = router({
   list: adminProcedure
     .input(z.object({ property_id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await assertOwnsProperty(ctx, input.property_id);
       return ctx.prisma.leaseTemplate.findMany({
         where: { property_id: input.property_id },
         orderBy: { version: 'desc' },
@@ -18,6 +25,7 @@ export const templatesRouter = router({
     .query(async ({ ctx, input }) => {
       const t = await ctx.prisma.leaseTemplate.findUnique({ where: { id: input.id } });
       if (!t) throw new TRPCError({ code: 'NOT_FOUND' });
+      await assertOwnsProperty(ctx, t.property_id);
       return t;
     }),
 
@@ -31,6 +39,7 @@ export const templatesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsProperty(ctx, input.property_id);
       const latest = await ctx.prisma.leaseTemplate.findFirst({
         where: { property_id: input.property_id, template_type: input.template_type },
         orderBy: { version: 'desc' },
@@ -63,6 +72,7 @@ export const templatesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsProperty(ctx, input.property_id);
       const { content_en, content_hi } = getDefaultTemplate(input.template_type);
 
       const latest = await ctx.prisma.leaseTemplate.findFirst({
@@ -103,6 +113,9 @@ export const templatesRouter = router({
         }),
       ]);
       if (!template || !lease) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (lease.unit.property.owner_id !== ctx.user!.id || template.property_id !== lease.unit.property_id) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
 
       const placeholders: Record<string, string> = {
         '{{tenant_name}}': lease.tenant.full_name,

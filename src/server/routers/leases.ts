@@ -3,6 +3,30 @@ import { router, adminProcedure, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { addDays } from 'date-fns';
 
+// Throws NOT_FOUND unless the unit's property belongs to ctx.user (owner role).
+async function assertOwnsUnit(ctx: { prisma: any; user: { id: string } | null }, unitId: string) {
+  const unit = await ctx.prisma.unit.findFirst({
+    where: { id: unitId, property: { owner_id: ctx.user!.id } },
+  });
+  if (!unit) throw new TRPCError({ code: 'NOT_FOUND', message: 'Unit not found' });
+}
+
+// Throws NOT_FOUND unless the lease belongs to ctx.user's property (owner role)
+// or is the tenant's own lease (tenant role). Returns the lease.
+async function assertOwnsLease(ctx: { prisma: any; user: { id: string; role: string } | null }, leaseId: string) {
+  const isTenant = ctx.user!.role === 'tenant';
+  const lease = await ctx.prisma.lease.findFirst({
+    where: {
+      id: leaseId,
+      ...(isTenant
+        ? { tenant_id: ctx.user!.id }
+        : { unit: { property: { owner_id: ctx.user!.id } } }),
+    },
+  });
+  if (!lease) throw new TRPCError({ code: 'NOT_FOUND', message: 'Lease not found' });
+  return lease;
+}
+
 export const leasesRouter = router({
   list: protectedProcedure
     .input(
@@ -18,7 +42,9 @@ export const leasesRouter = router({
         where: {
           deleted_at: null,
           ...(input.status !== 'all' ? { status: input.status } : {}),
-          ...(isTenant ? { tenant_id: ctx.user!.id } : {}),
+          ...(isTenant
+            ? { tenant_id: ctx.user!.id }
+            : { unit: { property: { owner_id: ctx.user!.id } } }),
           ...(input.tenant_id ? { tenant_id: input.tenant_id } : {}),
           ...(input.property_id
             ? { unit: { property_id: input.property_id } }
@@ -35,8 +61,15 @@ export const leasesRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const isTenant = ctx.user!.role === 'tenant';
       const lease = await ctx.prisma.lease.findFirst({
-        where: { id: input.id, deleted_at: null },
+        where: {
+          id: input.id,
+          deleted_at: null,
+          ...(isTenant
+            ? { tenant_id: ctx.user!.id }
+            : { unit: { property: { owner_id: ctx.user!.id } } }),
+        },
         include: {
           unit: { include: { property: true } },
           tenant: true,
@@ -79,6 +112,8 @@ export const leasesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsUnit(ctx, input.unit_id);
+
       const existing = await ctx.prisma.lease.findFirst({
         where: { unit_id: input.unit_id, status: 'active', deleted_at: null },
       });
@@ -112,6 +147,7 @@ export const leasesRouter = router({
   acknowledge: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsLease(ctx, input.id);
       return ctx.prisma.lease.update({
         where: { id: input.id },
         data: { acknowledged_at: new Date() },
@@ -130,6 +166,7 @@ export const leasesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsLease(ctx, input.lease_id);
       const amendment = await ctx.prisma.leaseAmendment.create({
         data: {
           lease_id: input.lease_id,
@@ -169,6 +206,7 @@ export const leasesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, deposit_collected_at, deposit_refunded_at, ...rest } = input;
+      await assertOwnsLease(ctx, id);
       return ctx.prisma.lease.update({
         where: { id },
         data: {
@@ -188,6 +226,7 @@ export const leasesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsLease(ctx, input.id);
       return ctx.prisma.lease.update({
         where: { id: input.id },
         data: {
@@ -206,6 +245,7 @@ export const leasesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsLease(ctx, input.id);
       return ctx.prisma.lease.update({
         where: { id: input.id },
         data: {
@@ -220,6 +260,7 @@ export const leasesRouter = router({
   terminate: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertOwnsLease(ctx, input.id);
       const lease = await ctx.prisma.lease.update({
         where: { id: input.id },
         data: { status: 'terminated', deleted_at: new Date() },
@@ -239,6 +280,7 @@ export const leasesRouter = router({
         status: 'active',
         deleted_at: null,
         end_date: { gte: now, lte: in60 },
+        unit: { property: { owner_id: ctx.user!.id } },
       },
       include: {
         unit: { include: { property: true } },

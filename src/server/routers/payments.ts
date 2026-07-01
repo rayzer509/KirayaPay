@@ -81,7 +81,7 @@ async function getAdminPaymentOrThrow(ctx: Ctx, paymentId: string) {
     },
   });
   if (!payment) throw new TRPCError({ code: 'NOT_FOUND' });
-  if (ctx.user!.role === 'owner' && payment.lease.unit.property.owner_id !== ctx.user!.id) {
+  if (payment.lease.unit.property.owner_id !== ctx.user!.id) {
     throw new TRPCError({ code: 'NOT_FOUND' });
   }
   return payment;
@@ -202,7 +202,7 @@ export const paymentsRouter = router({
         include: { unit: { include: { property: true } }, tenant: true },
       });
       if (!lease) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (ctx.user!.role === 'owner' && lease.unit.property.owner_id !== ctx.user!.id) {
+      if (lease.unit.property.owner_id !== ctx.user!.id) {
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
@@ -263,9 +263,7 @@ export const paymentsRouter = router({
         where: {
           id:     input.bill_id,
           status: { not: 'void' },
-          ...(ctx.user!.role === 'owner'
-            ? { unit: { property: { owner_id: ctx.user!.id } } }
-            : {}),
+          unit: { property: { owner_id: ctx.user!.id } },
         },
         include: {
           lease:  { include: { unit: { include: { property: true } }, tenant: true } },
@@ -395,9 +393,7 @@ export const paymentsRouter = router({
     return ctx.prisma.payment.findMany({
       where: {
         status: 'submitted',
-        ...(ctx.user!.role === 'owner'
-          ? { lease: { unit: { property: { owner_id: ctx.user!.id } } } }
-          : {}),
+        lease: { unit: { property: { owner_id: ctx.user!.id } } },
       },
       include: {
         lease: {
@@ -420,12 +416,14 @@ export const paymentsRouter = router({
     .query(async ({ ctx, input }) => {
       return ctx.prisma.payment.findMany({
         where: {
-          ...(input.lease_id    ? { lease_id: input.lease_id } : {}),
-          ...(input.property_id ? { lease: { unit: { property_id: input.property_id } } } : {}),
-          ...(input.tenant_id   ? { lease: { tenant_id: input.tenant_id } } : {}),
-          ...(ctx.user!.role === 'owner'
-            ? { lease: { unit: { property: { owner_id: ctx.user!.id } } } }
-            : {}),
+          ...(input.lease_id ? { lease_id: input.lease_id } : {}),
+          lease: {
+            ...(input.tenant_id ? { tenant_id: input.tenant_id } : {}),
+            unit: {
+              ...(input.property_id ? { property_id: input.property_id } : {}),
+              property: { owner_id: ctx.user!.id },
+            },
+          },
         },
         include: {
           lease: {
@@ -447,11 +445,9 @@ export const paymentsRouter = router({
       const payment = await ctx.prisma.payment.findFirst({
         where: {
           id: input.id,
-          ...(ctx.user!.role === 'owner'
-            ? { lease: { unit: { property: { owner_id: ctx.user!.id } } } }
-            : ctx.user!.role === 'tenant'
+          ...(ctx.user!.role === 'tenant'
             ? { lease: { tenant_id: ctx.user!.id } }
-            : {}),
+            : { lease: { unit: { property: { owner_id: ctx.user!.id } } } }),
         },
         include: {
           lease: {
