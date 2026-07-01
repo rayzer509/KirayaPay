@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, adminProcedure, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { notifyTenantsByProperty } from '@/lib/notifications';
 
 export const noticesRouter = router({
   list: protectedProcedure
@@ -44,13 +45,19 @@ export const noticesRouter = router({
         where: { id: input.property_id, owner_id: ctx.user!.id },
       });
       if (!property) throw new TRPCError({ code: 'NOT_FOUND' });
-      return ctx.prisma.notice.create({
+      const notice = await ctx.prisma.notice.create({
         data: {
           ...input,
           created_by: ctx.user!.id,
           sent_at: new Date(),
         },
       });
+      notifyTenantsByProperty(input.property_id, {
+        title: `Notice: ${input.title_en}`,
+        body:  input.body_en.slice(0, 120),
+        data:  { screen: 'notices' },
+      });
+      return notice;
     }),
 
   delete: adminProcedure

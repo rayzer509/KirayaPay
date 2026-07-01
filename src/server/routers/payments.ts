@@ -3,6 +3,8 @@ import { TRPCError } from '@trpc/server';
 import { router, adminProcedure, protectedProcedure } from '../trpc';
 import { arAccountCode, ensurePropertyAccounts, ensureTenantArAccount, ACCOUNTS } from '@/lib/accounts';
 import { postJournalEntry, paymentConfirmedLines } from '@/lib/journal';
+import { notifyUser } from '@/lib/notifications';
+import { formatCurrency } from '@/lib/utils';
 
 type Ctx = { prisma: any; user: { id: string; role: string } | null };
 
@@ -364,6 +366,12 @@ export const paymentsRouter = router({
         ),
       });
 
+      notifyUser(lease.tenant_id, {
+        title: 'Payment Confirmed ✓',
+        body:  `Your payment of ${formatCurrency(Number(payment.amount_paid))} has been confirmed.`,
+        data:  { screen: 'home' },
+      });
+
       return updated;
     }),
 
@@ -378,7 +386,7 @@ export const paymentsRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only submitted payments can be rejected' });
       }
 
-      return ctx.prisma.payment.update({
+      const result = await ctx.prisma.payment.update({
         where: { id: input.payment_id },
         data:  {
           status:           'rejected',
@@ -387,6 +395,14 @@ export const paymentsRouter = router({
           rejection_reason: input.rejection_reason,
         },
       });
+
+      notifyUser(payment.lease.tenant_id, {
+        title: 'Payment Not Verified',
+        body:  `Your payment of ${formatCurrency(Number(payment.amount_paid))} could not be verified. Please resubmit.`,
+        data:  { screen: 'home' },
+      });
+
+      return result;
     }),
 
   pendingVerification: adminProcedure.query(async ({ ctx }) => {

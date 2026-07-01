@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, adminProcedure, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { notifyUser } from '@/lib/notifications';
 
 export const maintenanceRouter = router({
   list: protectedProcedure
@@ -97,10 +98,29 @@ export const maintenanceRouter = router({
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
       const resolved_at =
         data.status === 'resolved' || data.status === 'closed' ? new Date() : undefined;
-      return ctx.prisma.maintenanceRequest.update({
+      const updated = await ctx.prisma.maintenanceRequest.update({
         where: { id },
         data: { ...data, ...(resolved_at ? { resolved_at } : {}) },
       });
+
+      if (data.status && data.status !== existing.status) {
+        const statusLabels: Record<string, string> = {
+          assigned:    'Your request has been assigned',
+          in_progress: 'Work has started on your request',
+          resolved:    'Your request has been resolved',
+          closed:      'Your request has been closed',
+        };
+        const label = statusLabels[data.status];
+        if (label) {
+          notifyUser(existing.raised_by, {
+            title: 'Maintenance Update',
+            body:  `${existing.title}: ${label}.`,
+            data:  { screen: 'maintenance' },
+          });
+        }
+      }
+
+      return updated;
     }),
 
   delete: adminProcedure

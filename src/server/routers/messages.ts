@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+import { notifyUser } from '@/lib/notifications';
 
 // Throws NOT_FOUND unless the lease belongs to ctx.user (tenant on the lease, or owner of its property).
 async function assertOwnsLeaseThread(ctx: { prisma: any; user: { id: string; role: string } | null }, leaseId: string) {
@@ -32,7 +33,7 @@ export const messagesRouter = router({
     .input(z.object({ lease_id: z.string().uuid(), body: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await assertOwnsLeaseThread(ctx, input.lease_id);
-      return ctx.prisma.message.create({
+      const message = await ctx.prisma.message.create({
         data: {
           lease_id: input.lease_id,
           sender_id: ctx.user!.id,
@@ -41,6 +42,38 @@ export const messagesRouter = router({
         },
         include: { sender: { select: { full_name: true, role: true } } },
       });
+
+      // Fire-and-forget: notify the other party without blocking the response
+      void (async () => {
+        const isTenant = ctx.user!.role === 'tenant';
+        if (isTenant) {
+          const property = await ctx.prisma.property.findFirst({
+            where: { units: { some: { leases: { some: { id: input.lease_id } } } } },
+            select: { owner_id: true },
+          });
+          if (property) {
+            notifyUser(property.owner_id, {
+              title: `Message from ${message.sender.full_name}`,
+              body:  input.body.slice(0, 100),
+              data:  { screen: 'messages', lease_id: input.lease_id },
+            });
+          }
+        } else {
+          const lease = await ctx.prisma.lease.findUnique({
+            where: { id: input.lease_id },
+            select: { tenant_id: true },
+          });
+          if (lease) {
+            notifyUser(lease.tenant_id, {
+              title: 'New message from your landlord',
+              body:  input.body.slice(0, 100),
+              data:  { screen: 'messages', lease_id: input.lease_id },
+            });
+          }
+        }
+      })();
+
+      return message;
     }),
 
   markRead: protectedProcedure

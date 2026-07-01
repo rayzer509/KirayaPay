@@ -150,8 +150,21 @@ model User {
   notices            Notice[]             @relation("NoticeCreatedBy")
   messages_sent      Message[]            @relation("MessageSender")
   journal_entries    JournalEntry[]       @relation("JournalPostedBy")
+  push_tokens        PushToken[]          @relation("UserPushTokens")
 
   @@map("users")
+}
+
+model PushToken {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  token      String   @unique @db.VarChar(200)
+  created_at DateTime @default(now()) @db.Timestamptz()
+
+  user User @relation("UserPushTokens", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("push_tokens")
 }
 
 model Property {
