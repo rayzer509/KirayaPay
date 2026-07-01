@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { httpBatchLink, loggerLink } from '@trpc/client';
-import superjson from 'superjson';
 import { Toaster } from 'react-hot-toast';
 import { trpc } from '@/lib/trpc';
 
@@ -20,7 +19,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   const [trpcClient] = useState(() =>
     trpc.createClient({
-      transformer: superjson,
       links: [
         loggerLink({
           enabled: (opts) =>

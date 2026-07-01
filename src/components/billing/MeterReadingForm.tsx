@@ -9,7 +9,16 @@ import { trpc } from '@/lib/trpc';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { toDecimalNumber } from '@/lib/utils';
-import type { MeterReading } from '@prisma/client';
+// Wire-safe version of MeterReading — Decimal fields arrive as strings over JSON
+// (superjson is no longer used as the tRPC transformer).
+type WireMeterReading = {
+  prev_elec_reading:  string | number | { toNumber(): number };
+  curr_elec_reading:  string | number | { toNumber(): number };
+  prev_water_reading: string | number | { toNumber(): number };
+  curr_water_reading: string | number | { toNumber(): number };
+  is_estimated:       boolean;
+  [key: string]:      unknown;
+};
 
 const schema = z.object({
   prev_elec_reading: z.coerce.number().nonnegative(),
@@ -23,7 +32,7 @@ type FormValues = z.infer<typeof schema>;
 interface Props {
   cycleId: string;
   unitId: string;
-  existing?: MeterReading;
+  existing?: WireMeterReading;
   onSuccess: () => void;
 }
 
